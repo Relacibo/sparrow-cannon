@@ -68,9 +68,16 @@ fn spawn_scheduler(app: tauri::AppHandle) {
                     continue;
                 }
                 last.insert(w.id.clone(), now);
-                let res = widgets::eval_status(op, &ctx);
-                let state = app.state::<SchedResults>();
-                state.0.lock().unwrap().insert(w.id.clone(), res);
+                let app2 = app.clone();
+                let op = op.clone();
+                let id = w.id.clone();
+                let ctx2 = ctx.clone();
+                std::thread::spawn(move || {
+                    let res = widgets::eval_status(&op, &ctx2);
+                    if let Some(st) = app2.try_state::<SchedResults>() {
+                        st.0.lock().unwrap().insert(id, res);
+                    }
+                });
             }
 
             // ssh-verbindungstests, langsam im hintergrund
@@ -79,13 +86,19 @@ fn spawn_scheduler(app: tauri::AppHandle) {
                 .unwrap_or(true);
             if test_due {
                 last_conn = Some(Instant::now());
-                let state = app.state::<ConnTests>();
                 for (id, c) in &conf.connections.ssh {
-                    let res = match sparrow_cannon_core::ssh::exec(&c.dest, "echo ok") {
-                        Ok(_) => (true, "verbunden".into()),
-                        Err(e) => (false, e.to_string()),
-                    };
-                    state.0.lock().unwrap().insert(id.clone(), res);
+                    let app2 = app.clone();
+                    let id = id.clone();
+                    let dest = c.dest.clone();
+                    std::thread::spawn(move || {
+                        let res = match sparrow_cannon_core::ssh::exec(&dest, "echo ok") {
+                            Ok(_) => (true, "verbunden".into()),
+                            Err(e) => (false, e.to_string()),
+                        };
+                        if let Some(st) = app2.try_state::<ConnTests>() {
+                            st.0.lock().unwrap().insert(id, res);
+                        }
+                    });
                 }
             }
         }

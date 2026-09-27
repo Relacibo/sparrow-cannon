@@ -46,6 +46,12 @@ fn system_ssh(dest: &str, cmd: &str) -> anyhow::Result<String> {
             "StrictHostKeyChecking=accept-new",
             "-o",
             "LogLevel=ERROR",
+            "-o",
+            "ControlMaster=auto",
+            "-o",
+            "ControlPath=/home/reinhard/.ssh/cannon-mux-%r@%h:%p",
+            "-o",
+            "ControlPersist=10m",
             dest,
             cmd,
         ])
