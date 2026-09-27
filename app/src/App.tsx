@@ -51,7 +51,7 @@ function App() {
   const [busy, setBusy] = createSignal("");
   const [error, setError] = createSignal("");
   const [lastCheck, setLastCheck] = createSignal("");
-  const [slow, setSlow] = createSignal(false);
+  const [polling, setPolling] = createSignal(false);
   const [view, setView] = createSignal<"dash" | "conns">("dash");
   const [edit, setEdit] = createSignal(false);
 
@@ -205,7 +205,7 @@ function App() {
   onMount(() => {
     refresh();
     timer = setInterval(() => {
-      if (!slow()) refresh();
+      if (!polling()) refresh();
     }, 10_000);
   });
   onCleanup(() => clearInterval(timer));
@@ -463,17 +463,27 @@ function App() {
       </Show>
 
       <p class="mt-4 flex items-center gap-2 text-xs text-muted">
+        <Show
+          when={polling()}
+          fallback={
+            <Show
+              when={!error()}
+              fallback={<span class="font-semibold text-err">✕</span>}
+            >
+              <span class="font-semibold text-up">✓</span>
+            </Show>
+          }
+        >
+          <span
+            class="inline-block size-3 animate-spin rounded-full border-2 border-line border-t-accent"
+            role="status"
+          />
+        </Show>
         aktualisiert: {lastCheck() || "…"} (10s)
         <Show when={boxUnreachable()}>
           <span class="text-err">· Box nicht erreichbar (Timeout?)</span>
         </Show>
       </p>
-      <Show when={slow()}>
-        <div
-          class="fixed right-3 bottom-3 z-40 size-3 animate-spin rounded-full border-2 border-line border-t-accent"
-          role="status"
-        />
-      </Show>
 
       {/* Karten-Builder */}
       <Show when={showAdd()}>
