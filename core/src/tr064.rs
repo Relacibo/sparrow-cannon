@@ -37,6 +37,11 @@ fn agent() -> ureq::Agent {
 
 /// Aus einem Non-200-Response den SOAP-Faulttext ziehen (sonst: Rohbody).
 fn fault_of(action: &str, code: u16, mut resp: ureq::Response) -> anyhow::Error {
+    if code == 401 {
+        return anyhow::anyhow!(
+            "SOAP {action}: HTTP 401 — Passwort falsch oder User unbekannt?"
+        );
+    }
     let text = resp.into_string().unwrap_or_default();
     if let Some(desc) = tag_value(&text, "errorDescription") {
         let code_upnp = tag_value(&text, "errorCode").unwrap_or_default();

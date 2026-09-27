@@ -18,15 +18,21 @@ function App() {
   const [busy, setBusy] = createSignal("");
   const [error, setError] = createSignal("");
   const [lastCheck, setLastCheck] = createSignal("");
+  const [polling, setPolling] = createSignal(false);
+  const [user, setUser] = createSignal("");
   const [pw, setPw] = createSignal("");
+  const [saving, setSaving] = createSignal(false);
 
   const refresh = async () => {
+    setPolling(true);
     try {
       setRows(await invoke<Row[]>("get_status"));
       setError("");
       setLastCheck(new Date().toLocaleTimeString());
     } catch (e) {
       setError(String(e));
+    } finally {
+      setPolling(false);
     }
   };
 
@@ -43,47 +49,79 @@ function App() {
     }
   };
 
-  const savePassword = async () => {
+  const saveCredentials = async () => {
+    setSaving(true);
+    setError("");
     try {
-      await invoke("set_password", { p: pw() });
+      await invoke("set_credentials", { user: user(), p: pw() });
       setPw("");
-      setError("");
       await refresh();
     } catch (e) {
       setError(String(e));
+    } finally {
+      setSaving(false);
     }
   };
 
   let timer: number;
-  onMount(() => {
+  onMount(async () => {
+    try {
+      setUser(await invoke<string>("get_box_user"));
+    } catch {
+      /* ohne config bleibt das Feld leer */
+    }
     refresh();
     timer = setInterval(refresh, 10_000);
   });
   onCleanup(() => clearInterval(timer));
 
+  const needsSetup = () =>
+    (error().includes("Passwort") || !rows().length) && !!error();
+
   return (
     <div class="mx-auto max-w-[900px] p-5 pb-[max(1.25rem,env(safe-area-inset-bottom))]">
-      <h1 class="mb-4 text-lg font-semibold text-muted">sparrow-cannon</h1>
+      <h1 class="mb-4 flex items-center gap-2 text-lg font-semibold text-muted">
+        sparrow-cannon
+        <Show when={polling()}>
+          <span
+            class="inline-block size-3 animate-spin rounded-full border-2 border-line border-t-accent"
+            role="status"
+          />
+        </Show>
+      </h1>
+
       <Show when={error()}>
         <div class="mb-3 font-mono text-xs break-all text-err">{error()}</div>
       </Show>
-      <Show when={error().includes("Passwort")}>
+
+      <Show when={needsSetup()}>
         <div class="mb-3 flex flex-wrap gap-2">
+          <input
+            type="text"
+            placeholder="Fritzbox-Benutzer"
+            class="w-44 rounded-lg border border-line bg-card px-3 py-3 text-sm text-fg"
+            value={user()}
+            onInput={(e) => setUser(e.currentTarget.value)}
+            disabled={saving()}
+          />
           <input
             type="password"
             placeholder="Fritzbox-Passwort"
             class="min-w-0 flex-1 rounded-lg border border-line bg-card px-3 py-3 text-sm text-fg"
             value={pw()}
             onInput={(e) => setPw(e.currentTarget.value)}
+            disabled={saving()}
           />
           <button
-            class="rounded-lg bg-accent px-5 py-3 text-sm font-semibold text-[#0d1117] active:opacity-70"
-            onClick={savePassword}
+            class="rounded-lg bg-accent px-5 py-3 text-sm font-semibold text-[#0d1117] active:opacity-70 disabled:opacity-50"
+            disabled={saving() || !pw()}
+            onClick={saveCredentials}
           >
-            OK
+            {saving() ? "prüfe…" : "OK"}
           </button>
         </div>
       </Show>
+
       <div class="grid grid-cols-1 gap-3.5 sm:grid-cols-2 lg:grid-cols-3">
         <For each={rows()}>
           {(r) => (
@@ -101,13 +139,14 @@ function App() {
                 onClick={() => wake(r.id)}
                 class="rounded-lg bg-accent py-3 text-sm font-semibold text-[#0d1117] active:opacity-70 disabled:opacity-50"
               >
-                {busy() === r.id ? "…" : "Wake"}
+                {busy() === r.id ? "wird geweckt…" : "Wake"}
               </button>
             </div>
           )}
         </For>
       </div>
-      <p class="mt-4 text-xs text-muted">
+
+      <p class="mt-4 flex items-center gap-2 text-xs text-muted">
         aktualisiert: {lastCheck() || "…"} (10s)
       </p>
     </div>

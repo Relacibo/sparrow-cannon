@@ -15,31 +15,50 @@ pub struct StatusRow {
     hostname: Option<String>,
 }
 
-/// Laufzeit-Passwort (z. B. per UI gesetzt, wenn kein Keyring existiert).
-struct AppState(Mutex<Option<String>>);
+/// Zur Laufzeit gesetzte Credentials (Android-Setup), überschreiben Config/Keyring.
+#[derive(Clone)]
+struct Credentials {
+    user: String,
+    pass: String,
+}
+
+struct AppState(Mutex<Option<Credentials>>);
 
 /// Config + Passwort laden, Default-Box wählen.
 fn setup(state: &AppState) -> Result<(BoxProfile, BTreeMap<String, Host>), String> {
     let conf = ConfigFile::load_default_or_builtin();
-    let pass = state
-        .0
-        .lock()
-        .unwrap()
-        .clone()
+    let creds = state.0.lock().unwrap().clone();
+    let pass = creds
+        .as_ref()
+        .map(|c| c.pass.clone())
         .or_else(pass::resolve_from_env_or_keyring)
         .ok_or("kein Box-Passwort — bitte unten eingeben")?;
     let profiles = conf.build_with_pass(&pass);
-    let box_ = profiles
+    let mut box_ = profiles
         .values()
         .next()
         .cloned()
         .ok_or("keine [boxes.*] in der config")?;
+    if let Some(c) = &creds {
+        box_.user = c.user.clone();
+    }
     Ok((box_, conf.hosts()))
 }
 
+/// Default-User der ersten Box (Prefill für das Setup-Feld).
 #[tauri::command]
-fn set_password(p: String, state: tauri::State<AppState>) -> Result<(), String> {
-    *state.0.lock().unwrap() = Some(p);
+fn get_box_user() -> Result<String, String> {
+    let conf = ConfigFile::load_default_or_builtin();
+    conf.boxes
+        .values()
+        .next()
+        .map(|b| b.user.clone())
+        .ok_or_else(|| "keine [boxes.*] in der config".to_string())
+}
+
+#[tauri::command]
+fn set_credentials(user: String, p: String, state: tauri::State<AppState>) -> Result<(), String> {
+    *state.0.lock().unwrap() = Some(Credentials { user, pass: p });
     Ok(())
 }
 
@@ -80,7 +99,12 @@ fn wake(host_id: String, state: tauri::State<AppState>) -> Result<(), String> {
 pub fn run() {
     tauri::Builder::default()
         .manage(AppState(Mutex::new(None)))
-        .invoke_handler(tauri::generate_handler![get_status, wake, set_password])
+        .invoke_handler(tauri::generate_handler![
+            get_status,
+            wake,
+            set_credentials,
+            get_box_user
+        ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }
