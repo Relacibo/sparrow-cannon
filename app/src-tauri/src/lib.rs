@@ -134,28 +134,8 @@ fn get_ssh_connections(app: tauri::AppHandle) -> Result<Vec<SshConnInfo>, String
     let conf = load_conf(&app);
     let mut out = Vec::new();
     for (id, c) in &conf.connections.ssh {
-        let r = std::process::Command::new("timeout")
-            .args([
-                "8",
-                "ssh",
-                "-o",
-                "BatchMode=yes",
-                "-o",
-                "ConnectTimeout=4",
-                "-o",
-                "StrictHostKeyChecking=accept-new",
-                "-o",
-                "LogLevel=ERROR",
-                &c.dest,
-                "echo ok",
-            ])
-            .output();
-        let (ok, detail) = match r {
-            Ok(o) if o.status.success() => (true, "verbunden".into()),
-            Ok(o) => (
-                false,
-                String::from_utf8_lossy(&o.stderr).trim().chars().take(120).collect(),
-            ),
+        let (ok, detail) = match sparrow_cannon_core::ssh::exec(&c.dest, "echo ok") {
+            Ok(_) => (true, "verbunden".into()),
             Err(e) => (false, e.to_string()),
         };
         out.push(SshConnInfo {
