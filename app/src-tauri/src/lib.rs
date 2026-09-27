@@ -23,6 +23,7 @@ pub struct StatusRow {
 fn config_path(app: &tauri::AppHandle) -> PathBuf {
     #[cfg(target_os = "android")]
     {
+        use tauri::Manager;
         app.path()
             .app_data_dir()
             .expect("app_data_dir nicht auflösbar")
@@ -89,6 +90,7 @@ fn spawn_scheduler(app: tauri::AppHandle) {
 fn secrets_dir(app: &tauri::AppHandle) -> Option<PathBuf> {
     #[cfg(target_os = "android")]
     {
+        use tauri::Manager;
         app.path()
             .app_data_dir()
             .expect("app_data_dir nicht auflösbar")
