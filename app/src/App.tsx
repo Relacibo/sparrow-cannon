@@ -459,11 +459,7 @@ function App() {
                     <span class="ml-auto flex items-center gap-1.5">
                       <Show when={w.pausable && !w.disabled}>
                         <button
-                          class={`cursor-pointer rounded border px-2 py-1 text-xs transition ${
-                            w.statusPaused
-                              ? "border-line text-muted hover:text-fg"
-                              : "border-accent text-accent"
-                          }`}
+                          class="cursor-pointer text-muted transition hover:text-fg"
                           title={
                             w.statusPaused
                               ? "Status-Abfrage starten"
@@ -476,7 +472,10 @@ function App() {
                             }).then(refresh)
                           }
                         >
-                          {w.statusPaused ? "▶" : "⏸"}
+                          <Icon
+                            name={w.statusPaused ? "play" : "pause"}
+                            class="size-3"
+                          />
                         </button>
                       </Show>
                       <Show when={edit()}>
