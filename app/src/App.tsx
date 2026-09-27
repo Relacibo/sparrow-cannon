@@ -72,8 +72,7 @@ function App() {
   const [saving, setSaving] = createSignal(false);
 
   const refresh = async () => {
-    setSlow(false);
-    const t = window.setTimeout(() => setSlow(true), 300);
+    setPolling(true);
     try {
       setRows(await invoke<Row[]>("get_status"));
       setWids(await invoke<WidgetRow[]>("get_widgets"));
@@ -87,8 +86,7 @@ function App() {
       setError(msg);
       if (msg.includes("kein Box-Passwort")) setView("conns");
     } finally {
-      window.clearTimeout(t);
-      setSlow(false);
+      setPolling(false);
     }
   };
 
@@ -211,7 +209,7 @@ function App() {
   onMount(() => {
     refresh();
     timer = setInterval(() => {
-      if (!polling()) refresh();
+      if (!polling() && (rows().length || wids().length || !loaded())) refresh();
     }, 10_000);
   });
   onCleanup(() => clearInterval(timer));
@@ -252,34 +250,45 @@ function App() {
           >
             Verbindungen
           </button>
-          <Show when={view() === "dash"}>
-            <button
-              title="Karten bearbeiten"
-              class={`cursor-pointer rounded-lg border px-2.5 py-1 text-xs transition active:opacity-70 ${
-                edit()
-                  ? "border-accent text-accent"
-                  : "border-line text-muted hover:border-muted hover:text-fg"
-              }`}
-              onClick={() => setEdit(!edit())}
-            >
-              <svg
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                stroke-width="2"
-                stroke-linecap="round"
-                stroke-linejoin="round"
-                class="size-3.5"
-              >
-                <path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z" />
-              </svg>
-            </button>
-          </Show>
         </span>
       </h1>
 
-      <Show when={error() && !setupNeeded()}>
+      <Show when={view() === "dash" && error() && !setupNeeded()}>
         <div class="mb-3 font-mono text-xs break-all text-err">{error()}</div>
+      </Show>
+
+      <Show when={view() === "dash"}>
+        <div class="mb-3 flex items-center gap-2">
+          <button
+            class={`flex cursor-pointer items-center gap-1.5 rounded-lg border px-3 py-1.5 text-xs transition active:opacity-70 ${
+              edit()
+                ? "border-accent text-accent"
+                : "border-line text-muted hover:border-muted hover:text-fg"
+            }`}
+            onClick={() => setEdit(!edit())}
+          >
+            <svg
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              class="size-3.5"
+            >
+              <path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z" />
+            </svg>
+            {edit() ? "Bearbeiten beenden" : "Karten bearbeiten"}
+          </button>
+          <Show when={edit()}>
+            <button
+              class="cursor-pointer rounded-lg border border-accent px-3 py-1.5 text-xs font-semibold text-accent transition hover:brightness-110 active:opacity-80"
+              onClick={openAdd}
+            >
+              + Neue Karte
+            </button>
+          </Show>
+        </div>
       </Show>
 
       <Show when={view() === "dash"}>
