@@ -218,8 +218,7 @@ pub struct BoxConnInfo {
     pub has_secret: bool,
 }
 
-#[tauri::command]
-fn get_box_connections(app: tauri::AppHandle) -> Result<Vec<BoxConnInfo>, String> {
+fn get_box_connections_impl(app: &tauri::AppHandle) -> Result<Vec<BoxConnInfo>, String> {
     let conf = load_conf(&app);
     Ok(conf
         .boxes
@@ -231,6 +230,13 @@ fn get_box_connections(app: tauri::AppHandle) -> Result<Vec<BoxConnInfo>, String
             has_secret: pass::resolve(id, secrets_dir(&app).as_deref()).is_some(),
         })
         .collect())
+}
+
+#[tauri::command]
+async fn get_box_connections(app: tauri::AppHandle) -> Result<Vec<BoxConnInfo>, String> {
+    tauri::async_runtime::spawn_blocking(move || get_box_connections_impl(&app))
+        .await
+        .map_err(|e| format!("join: {e}"))?
 }
 
 /// Lokaler SSH-Pubkey (zum Verteilen auf Zielsysteme).
@@ -419,8 +425,7 @@ fn set_widget_enabled(id: String, enabled: bool, app: tauri::AppHandle) -> Resul
     conf.save_to(&path).map_err(|e| e.to_string())
 }
 
-#[tauri::command]
-fn get_widgets(app: tauri::AppHandle) -> Result<Vec<WidgetState>, String> {
+fn get_widgets_impl(app: &tauri::AppHandle) -> Result<Vec<WidgetState>, String> {
     use tauri::Manager;
     let conf = load_conf(&app);
     let ctx = widgets::Ctx::from_config(&conf, secrets_dir(&app));
@@ -445,7 +450,13 @@ fn get_widgets(app: tauri::AppHandle) -> Result<Vec<WidgetState>, String> {
 }
 
 #[tauri::command]
-fn fire_widget(id: String, index: usize, app: tauri::AppHandle) -> Result<String, String> {
+async fn get_widgets(app: tauri::AppHandle) -> Result<Vec<WidgetState>, String> {
+    tauri::async_runtime::spawn_blocking(move || get_widgets_impl(&app))
+        .await
+        .map_err(|e| format!("join: {e}"))?
+}
+
+fn fire_widget_impl(app: &tauri::AppHandle, id: &str, index: usize) -> Result<String, String> {
     let conf = load_conf(&app);
     let ctx = widgets::Ctx::from_config(&conf, secrets_dir(&app));
     let w = conf
@@ -464,6 +475,13 @@ fn fire_widget(id: String, index: usize, app: tauri::AppHandle) -> Result<String
             Err(e.to_string())
         }
     }
+}
+
+#[tauri::command]
+async fn fire_widget(id: String, index: usize, app: tauri::AppHandle) -> Result<String, String> {
+    tauri::async_runtime::spawn_blocking(move || fire_widget_impl(&app, &id, index))
+        .await
+        .map_err(|e| format!("join: {e}"))?
 }
 
 /// Param-Schema der Registry für den "+"-Dialog.
@@ -582,8 +600,7 @@ fn set_box_config(
     Ok(())
 }
 
-#[tauri::command]
-fn get_status(app: tauri::AppHandle) -> Result<Vec<StatusRow>, String> {
+fn get_status_impl(app: &tauri::AppHandle) -> Result<Vec<StatusRow>, String> {
     let t0 = std::time::Instant::now();
     let (box_, hosts) = setup(&app)?;
     Ok(hosts
@@ -618,10 +635,23 @@ fn get_status(app: tauri::AppHandle) -> Result<Vec<StatusRow>, String> {
 }
 
 #[tauri::command]
-fn wake(host_id: String, app: tauri::AppHandle) -> Result<(), String> {
+async fn get_status(app: tauri::AppHandle) -> Result<Vec<StatusRow>, String> {
+    tauri::async_runtime::spawn_blocking(move || get_status_impl(&app))
+        .await
+        .map_err(|e| format!("join: {e}"))?
+}
+
+fn wake_impl(app: &tauri::AppHandle, host_id: &str) -> Result<(), String> {
     let (box_, hosts) = setup(&app)?;
-    let h = hosts.get(&host_id).ok_or(format!("host '{host_id}' fehlt"))?;
+    let h = hosts.get(host_id).ok_or(format!("host '{host_id}' fehlt"))?;
     sparrow_cannon_core::wake(&box_, h).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn wake(host_id: String, app: tauri::AppHandle) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || wake_impl(&app, &host_id))
+        .await
+        .map_err(|e| format!("join: {e}"))?
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
