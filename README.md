@@ -59,4 +59,6 @@ Feld ist frei: GitHub kennt für „fritzbox wake on lan" nur ein einzelnes
 
 ## Lizenz
 
-TBD (vermutlich MIT).
+MIT — siehe [LICENSE](LICENSE).
+
+*Hinweis: Dieses Projekt ist nicht mit AVM verbunden. FRITZ!Box ist eine Marke der AVM GmbH.*
