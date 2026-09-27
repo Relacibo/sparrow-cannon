@@ -2,7 +2,6 @@
 //! Karte = Action (+ Status). Status ist nur eine schreibgeschützte Action.
 
 use serde::{Deserialize, Serialize};
-use std::process::Command;
 
 #[derive(Debug, Clone, Default, Deserialize, Serialize)]
 pub struct ActionFile {

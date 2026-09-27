@@ -7,7 +7,7 @@ use std::collections::BTreeMap;
 use std::process::Command;
 
 use crate::config::ConfigFile;
-use crate::{pass, tr064, BoxProfile};
+use crate::{BoxProfile, pass, tr064};
 
 /// Ein Parameterfeld im Schema einer Methode.
 #[derive(Debug, Clone, Serialize)]
@@ -63,17 +63,18 @@ impl Ctx {
             }
         }
         let mut ssh_conns = BTreeMap::new();
+        // globaler device-key für alle ssh-verbindungen (identität des geräts)
+        let device_key = secrets_dir
+            .as_deref()
+            .map(|d| d.join("secrets").join("device.key"))
+            .filter(|p| p.exists());
         for (id, c) in &conf.connections.ssh {
-            let keyfile = secrets_dir
-                .as_deref()
-                .map(|d| d.join("ssh").join(format!("{id}.key")))
-                .filter(|p| p.exists());
             ssh_conns.insert(
                 id.clone(),
                 SshTarget {
                     dest: c.dest.clone(),
                     user: c.user.clone(),
-                    keyfile,
+                    keyfile: device_key.clone(),
                 },
             );
         }
@@ -212,28 +213,68 @@ pub fn field_defs() -> BTreeMap<&'static str, Vec<FieldDef>> {
     def(
         "fritzbox.wake",
         vec![
-            FieldDef { key: "box", label: "Box-ID", kind: FieldKind::Text, required: true },
-            FieldDef { key: "mac", label: "MAC-Adresse", kind: FieldKind::Mac, required: true },
+            FieldDef {
+                key: "box",
+                label: "Box-ID",
+                kind: FieldKind::Text,
+                required: true,
+            },
+            FieldDef {
+                key: "mac",
+                label: "MAC-Adresse",
+                kind: FieldKind::Mac,
+                required: true,
+            },
         ],
     );
     def(
         "fritzbox.status",
         vec![
-            FieldDef { key: "box", label: "Box-ID", kind: FieldKind::Text, required: true },
-            FieldDef { key: "mac", label: "MAC-Adresse", kind: FieldKind::Mac, required: true },
+            FieldDef {
+                key: "box",
+                label: "Box-ID",
+                kind: FieldKind::Text,
+                required: true,
+            },
+            FieldDef {
+                key: "mac",
+                label: "MAC-Adresse",
+                kind: FieldKind::Mac,
+                required: true,
+            },
         ],
     );
     def(
         "ssh.run",
         vec![
-            FieldDef { key: "connection", label: "SSH-Verbindung", kind: FieldKind::SshConn, required: true },
-            FieldDef { key: "command", label: "Befehl", kind: FieldKind::Text, required: true },
-            FieldDef { key: "ok_contains", label: "OK-Muster (enthält, optional)", kind: FieldKind::Text, required: false },
+            FieldDef {
+                key: "connection",
+                label: "SSH-Verbindung",
+                kind: FieldKind::SshConn,
+                required: true,
+            },
+            FieldDef {
+                key: "command",
+                label: "Befehl",
+                kind: FieldKind::Text,
+                required: true,
+            },
+            FieldDef {
+                key: "ok_contains",
+                label: "OK-Muster (enthält, optional)",
+                kind: FieldKind::Text,
+                required: false,
+            },
         ],
     );
     def(
         "ping.check",
-        vec![FieldDef { key: "host", label: "Host", kind: FieldKind::Text, required: true }],
+        vec![FieldDef {
+            key: "host",
+            label: "Host",
+            kind: FieldKind::Text,
+            required: true,
+        }],
     );
     m
 }
@@ -257,7 +298,9 @@ fn ssh(t: &SshTarget, cmd: &str) -> anyhow::Result<String> {
 }
 
 fn ping(host: &str) -> anyhow::Result<String> {
-    let out = Command::new("ping").args(["-c", "1", "-W", "2", host]).output()?;
+    let out = Command::new("ping")
+        .args(["-c", "1", "-W", "2", host])
+        .output()?;
     if out.status.success() {
         Ok(String::from_utf8_lossy(&out.stdout)
             .lines()
@@ -369,15 +412,11 @@ pub fn widget_states(widgets: &[Widget], ctx: &Ctx) -> Vec<WidgetState> {
                 .iter()
                 .enumerate()
                 .filter(|(_, a)| {
-                    if w.status_paused {
-                        return true;
-                    }
-                    match (a.when.as_str(), status_state.as_str()) {
-                        ("ok", "OK") => true,
-                        ("fail", "FAIL" | "ERR") => true,
-                        ("always", _) => true,
-                        _ => false,
-                    }
+                    w.status_paused
+                        || matches!(
+                            (a.when.as_str(), status_state.as_str()),
+                            ("ok", "OK") | ("fail", "FAIL" | "ERR") | ("always", _)
+                        )
                 })
                 .map(|(i, a)| ActionBtn {
                     label: a.label.clone(),

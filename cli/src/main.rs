@@ -90,7 +90,7 @@ fn main() -> anyhow::Result<()> {
                 hosts.insert(h.clone(), one);
                 hosts.retain(|id, _| id == h);
             }
-            println!("{:<10} {:<5} {:<16} {}", "host", "state", "ip", "hostname");
+            println!("{:<10} {:<5} {:<16} hostname", "host", "state", "ip");
             for (id, h) in &hosts {
                 match sparrow_cannon_core::status(&box_, h) {
                     Ok(s) => println!(

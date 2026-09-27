@@ -4,8 +4,8 @@
 /// Erzeugt ein ed25519-Keypair. Rückgabe: (privat PEM, pub "ssh-ed25519 <b64>").
 #[cfg(target_os = "android")]
 pub fn generate_ed25519() -> anyhow::Result<(String, String)> {
-    use russh_keys::key::KeyPair;
     use russh_keys::PublicKeyBase64;
+    use russh_keys::key::KeyPair;
     let kp = KeyPair::generate_ed25519().ok_or_else(|| anyhow::anyhow!("rng fehlgeschlagen"))?;
     let mut priv_pem = Vec::new();
     russh_keys::encode_pkcs8_pem(&kp, &mut priv_pem)

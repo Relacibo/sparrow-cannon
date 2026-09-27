@@ -107,10 +107,10 @@ pub fn delete(box_id: &str) {
 
 /// Komfort-Auflösung für Frontends: env → keyring(box_id) → datei-fallback.
 pub fn resolve(box_id: &str, secrets_dir: Option<&Path>) -> Option<String> {
-    if let Ok(p) = std::env::var("CANNON_PASS") {
-        if !p.is_empty() {
-            return Some(p);
-        }
+    if let Ok(p) = std::env::var("CANNON_PASS")
+        && !p.is_empty()
+    {
+        return Some(p);
     }
     if let Some(p) = keyring_lookup(box_id) {
         return Some(p);
@@ -123,7 +123,10 @@ pub fn resolve(box_id: &str, secrets_dir: Option<&Path>) -> Option<String> {
 pub fn store(box_id: &str, pass: &str, secrets_dir: Option<&Path>) -> &'static str {
     if keyring_store(box_id, pass) {
         "keyring"
-    } else if secrets_dir.map(|d| file_store(d, box_id, pass)).unwrap_or(false) {
+    } else if secrets_dir
+        .map(|d| file_store(d, box_id, pass))
+        .unwrap_or(false)
+    {
         "datei"
     } else {
         "nirgends"

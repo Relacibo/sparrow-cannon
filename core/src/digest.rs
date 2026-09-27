@@ -26,19 +26,17 @@ impl Challenge {
         let s = header.trim();
         let s = s.strip_prefix("Digest").unwrap_or(s).trim();
         let attrs = parse_attrs(s);
-        let get = |k: &str| {
-            attrs
-                .iter()
-                .find(|(a, _)| a == k)
-                .map(|(_, v)| v.clone())
-        };
+        let get = |k: &str| attrs.iter().find(|(a, _)| a == k).map(|(_, v)| v.clone());
 
         let realm = get("realm").context("digest-challenge ohne realm")?;
         let nonce = get("nonce").context("digest-challenge ohne nonce")?;
 
         let algo = match get("algorithm") {
             Some(a) if a.split(',').any(|x| x.trim().eq_ignore_ascii_case("MD5")) => Algo::Md5,
-            Some(a) if a.split(',').any(|x| x.trim().eq_ignore_ascii_case("SHA-256")) => {
+            Some(a)
+                if a.split(',')
+                    .any(|x| x.trim().eq_ignore_ascii_case("SHA-256")) =>
+            {
                 Algo::Sha256
             }
             None => Algo::Md5,
@@ -118,6 +116,7 @@ fn hex_hash(algo: Algo, input: &str) -> String {
 }
 
 /// response = H(HA1:nonce:nc:cnonce:qop:HA2) bei qop, sonst RFC-2069 H(HA1:nonce:HA2).
+#[allow(clippy::too_many_arguments)]
 fn response_value(
     algo: Algo,
     user: &str,
@@ -133,10 +132,7 @@ fn response_value(
     let ha1 = hex_hash(algo, &format!("{user}:{realm}:{pass}"));
     let ha2 = hex_hash(algo, &format!("{method}:{uri}"));
     match qop {
-        Some(qop) => hex_hash(
-            algo,
-            &format!("{ha1}:{nonce}:{nc}:{cnonce}:{qop}:{ha2}"),
-        ),
+        Some(qop) => hex_hash(algo, &format!("{ha1}:{nonce}:{nc}:{cnonce}:{qop}:{ha2}")),
         None => hex_hash(algo, &format!("{ha1}:{nonce}:{ha2}")),
     }
 }

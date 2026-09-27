@@ -1,9 +1,9 @@
+use serde::Serialize;
 use sparrow_cannon_core::config::ConfigFile;
 use sparrow_cannon_core::widgets::{self, Widget, WidgetState};
-use sparrow_cannon_core::{pass, BoxProfile, Host};
-use serde::Serialize;
+use sparrow_cannon_core::{BoxProfile, Host, pass};
 use std::collections::BTreeMap;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::Mutex as StdMutex;
 use std::time::{Duration, Instant};
 
@@ -21,7 +21,6 @@ pub struct StatusRow {
 /// Desktop: ~/.config/sparrow-cannon/config.toml.
 /// Android: <app_data_dir>/config.toml.
 fn config_path(app: &tauri::AppHandle) -> PathBuf {
-    use tauri::Manager;
     #[cfg(target_os = "android")]
     {
         app.path()
@@ -81,20 +80,13 @@ fn spawn_scheduler(app: tauri::AppHandle) {
                     }
                 });
             }
-
-
         }
     });
-}
-
-fn now2() -> Instant {
-    Instant::now()
 }
 
 /// Verzeichnis für den Datei-Fallback der Passwörter (nur Android relevant —
 /// dort gibt es keinen Secret Service).
 fn secrets_dir(app: &tauri::AppHandle) -> Option<PathBuf> {
-    use tauri::Manager;
     #[cfg(target_os = "android")]
     {
         app.path()
@@ -111,16 +103,21 @@ fn secrets_dir(app: &tauri::AppHandle) -> Option<PathBuf> {
 
 /// Alte box.txt (Vorgängerversion) entfernen — Werte leben jetzt in der
 /// config.toml, das Passwort im Keyring bzw. unter secrets/.
-fn migrate_legacy_box_txt(dir: &PathBuf, conf: &mut ConfigFile) {
+fn migrate_legacy_box_txt(dir: &Path, conf: &mut ConfigFile) {
+    // legacy: per-connection ssh-key → device-key
+    let legacy_key = dir.join("secrets").join("ssh-pc.key");
+    let device_key = dir.join("secrets").join("device.key");
+    if legacy_key.exists() && !device_key.exists() {
+        let _ = std::fs::rename(&legacy_key, &device_key);
+        tracing::info!("legacy ssh-key → device-key migriert");
+    }
+
     let legacy = dir.join("box.txt");
     let Ok(raw) = std::fs::read_to_string(&legacy) else {
         return;
     };
     let mut lines = raw.lines();
-    let (Some(url), Some(user)) = (
-        lines.next().map(str::trim),
-        lines.next().map(str::trim),
-    ) else {
+    let (Some(url), Some(user)) = (lines.next().map(str::trim), lines.next().map(str::trim)) else {
         let _ = std::fs::remove_file(&legacy);
         return;
     };
@@ -191,7 +188,7 @@ fn get_ssh_connections(app: tauri::AppHandle) -> Result<Vec<SshConnInfo>, String
     use tauri::Manager;
     let conf = load_conf(&app);
     let tests = app.state::<ConnTests>();
-    let cached = tests.0.lock().unwrap().clone();
+    let _cached = tests.0.lock().unwrap().clone();
     let mut out = Vec::new();
     for (id, c) in &conf.connections.ssh {
         let (ok, detail) = match sparrow_cannon_core::ssh::exec(&c.dest, "echo ok") {
@@ -219,7 +216,7 @@ pub struct BoxConnInfo {
 }
 
 fn get_box_connections_impl(app: &tauri::AppHandle) -> Result<Vec<BoxConnInfo>, String> {
-    let conf = load_conf(&app);
+    let conf = load_conf(app);
     Ok(conf
         .boxes
         .iter()
@@ -227,7 +224,7 @@ fn get_box_connections_impl(app: &tauri::AppHandle) -> Result<Vec<BoxConnInfo>, 
             id: id.clone(),
             base_url: b.base_url.clone(),
             user: b.user.clone(),
-            has_secret: pass::resolve(id, secrets_dir(&app).as_deref()).is_some(),
+            has_secret: pass::resolve(id, secrets_dir(app).as_deref()).is_some(),
         })
         .collect())
 }
@@ -262,20 +259,6 @@ fn get_platform() -> String {
     }
 }
 
-/// Pubkey einer gespeicherten SSH-Verbindung (android).
-#[tauri::command]
-fn get_conn_pubkey(id: String, app: tauri::AppHandle) -> Result<String, String> {
-    use tauri::Manager;
-    let dir = app
-        .path()
-        .app_data_dir()
-        .expect("app_data_dir nicht auflösbar");
-    let key_path = dir.join("secrets").join(format!("ssh-{id}.key"));
-    let pem = std::fs::read_to_string(&key_path)
-        .map_err(|_| format!("kein key für '{id}' — erst 🔑 generieren"))?;
-    sparrow_cannon_core::keys::public_line(&pem).map_err(|e| e.to_string())
-}
-
 #[tauri::command]
 fn upsert_ssh_conn(
     id: String,
@@ -297,27 +280,34 @@ fn upsert_ssh_conn(
     conf.save_to(&path).map_err(|e| e.to_string())
 }
 
-/// Generiert ein In-App-Keypair (Android/Phase 3) und legt den privaten Teil
-/// unter secrets/ssh-<id>.key (600) ab. Rückgabe: pubkey zum Verteilen.
+/// Stellt den globalen Device-SSH-Key sicher (generiert bei Bedarf).
+/// Rückgabe: pubkey zum Verteilen.
 #[tauri::command]
-fn generate_ssh_key(id: String, app: tauri::AppHandle) -> Result<String, String> {
+async fn ensure_device_key(app: tauri::AppHandle) -> Result<String, String> {
     use tauri::Manager;
-    let dir = app
-        .path()
-        .app_data_dir()
-        .expect("app_data_dir nicht auflösbar");
-    let (priv_pem, pub_line) = sparrow_cannon_core::keys::generate_ed25519()
-        .map_err(|e| format!("{e} (desktop: system-keys nutzen)"))?;
-    let path = dir.join("secrets").join(format!("ssh-{id}.key"));
-    std::fs::create_dir_all(path.parent().unwrap()).map_err(|e| e.to_string())?;
-    std::fs::write(&path, priv_pem).map_err(|e| e.to_string())?;
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        let _ = std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600));
-    }
-    tracing::info!("ssh-key für {id} generiert: {}", path.display());
-    Ok(pub_line)
+    tauri::async_runtime::spawn_blocking(move || {
+        let dir = app
+            .path()
+            .app_data_dir()
+            .expect("app_data_dir nicht auflösbar");
+        let key_path = dir.join("secrets").join("device.key");
+        if let Ok(existing) = std::fs::read_to_string(&key_path) {
+            return sparrow_cannon_core::keys::public_line(&existing).map_err(|e| format!("{e}"));
+        }
+        let (priv_pem, pub_line) = sparrow_cannon_core::keys::generate_ed25519()
+            .map_err(|e| format!("{e} (desktop: system-keys nutzen)"))?;
+        std::fs::create_dir_all(key_path.parent().unwrap()).map_err(|e| e.to_string())?;
+        std::fs::write(&key_path, priv_pem).map_err(|e| e.to_string())?;
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let _ = std::fs::set_permissions(&key_path, std::fs::Permissions::from_mode(0o600));
+        }
+        tracing::info!("device-ssh-key generiert: {}", key_path.display());
+        Ok(pub_line)
+    })
+    .await
+    .map_err(|e| format!("join: {e}"))?
 }
 
 #[tauri::command]
@@ -416,7 +406,6 @@ fn update_widget(widget: Widget, app: tauri::AppHandle) -> Result<(), String> {
 /// Widget aktivieren/deaktivieren.
 #[tauri::command]
 fn set_widget_enabled(id: String, enabled: bool, app: tauri::AppHandle) -> Result<(), String> {
-    use tauri::Manager;
     let path = config_path(&app);
     let mut conf = ConfigFile::load_from(path.clone()).unwrap_or_else(|_| ConfigFile::builtin());
     if let Some(w) = conf.widgets.iter_mut().find(|w| w.id == id) {
@@ -427,8 +416,8 @@ fn set_widget_enabled(id: String, enabled: bool, app: tauri::AppHandle) -> Resul
 
 fn get_widgets_impl(app: &tauri::AppHandle) -> Result<Vec<WidgetState>, String> {
     use tauri::Manager;
-    let conf = load_conf(&app);
-    let ctx = widgets::Ctx::from_config(&conf, secrets_dir(&app));
+    let conf = load_conf(app);
+    let ctx = widgets::Ctx::from_config(&conf, secrets_dir(app));
     let sched = app.state::<SchedResults>();
     let sched_map = sched.0.lock().unwrap().clone();
     Ok(conf
@@ -457,8 +446,8 @@ async fn get_widgets(app: tauri::AppHandle) -> Result<Vec<WidgetState>, String> 
 }
 
 fn fire_widget_impl(app: &tauri::AppHandle, id: &str, index: usize) -> Result<String, String> {
-    let conf = load_conf(&app);
-    let ctx = widgets::Ctx::from_config(&conf, secrets_dir(&app));
+    let conf = load_conf(app);
+    let ctx = widgets::Ctx::from_config(&conf, secrets_dir(app));
     let w = conf
         .widgets
         .iter()
@@ -557,7 +546,6 @@ pub struct BoxInfo {
 
 #[tauri::command]
 fn get_box_info(app: tauri::AppHandle) -> Result<BoxInfo, String> {
-    use tauri::Manager;
     let path = config_path(&app);
     let conf = ConfigFile::load_from(path.clone()).unwrap_or_else(|_| ConfigFile::builtin());
     let (box_id, base_url, user) = conf
@@ -581,7 +569,6 @@ fn set_box_config(
     p: String,
     app: tauri::AppHandle,
 ) -> Result<(), String> {
-    use tauri::Manager;
     if !base_url.starts_with("http") {
         return Err("Box-URL muss mit http:// beginnen".into());
     }
@@ -602,7 +589,7 @@ fn set_box_config(
 
 fn get_status_impl(app: &tauri::AppHandle) -> Result<Vec<StatusRow>, String> {
     let t0 = std::time::Instant::now();
-    let (box_, hosts) = setup(&app)?;
+    let (box_, hosts) = setup(app)?;
     Ok(hosts
         .into_iter()
         // Hosts ohne MAC sind reine SSH-Hosts — die Fritzbox kennt sie nicht.
@@ -642,8 +629,10 @@ async fn get_status(app: tauri::AppHandle) -> Result<Vec<StatusRow>, String> {
 }
 
 fn wake_impl(app: &tauri::AppHandle, host_id: &str) -> Result<(), String> {
-    let (box_, hosts) = setup(&app)?;
-    let h = hosts.get(host_id).ok_or(format!("host '{host_id}' fehlt"))?;
+    let (box_, hosts) = setup(app)?;
+    let h = hosts
+        .get(host_id)
+        .ok_or(format!("host '{host_id}' fehlt"))?;
     sparrow_cannon_core::wake(&box_, h).map_err(|e| e.to_string())
 }
 
@@ -689,9 +678,8 @@ pub fn run() {
             get_box_connections,
             get_pubkey,
             get_platform,
-            get_conn_pubkey,
             upsert_ssh_conn,
-            generate_ssh_key,
+            ensure_device_key,
             remove_ssh_conn,
             upsert_box_conn,
             remove_box_conn

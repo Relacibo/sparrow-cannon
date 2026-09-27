@@ -37,11 +37,9 @@ fn agent() -> ureq::Agent {
 }
 
 /// Aus einem Non-200-Response den SOAP-Faulttext ziehen (sonst: Rohbody).
-fn fault_of(action: &str, code: u16, mut resp: ureq::Response) -> anyhow::Error {
+fn fault_of(action: &str, code: u16, resp: ureq::Response) -> anyhow::Error {
     if code == 401 {
-        return anyhow::anyhow!(
-            "SOAP {action}: HTTP 401 — Passwort falsch oder User unbekannt?"
-        );
+        return anyhow::anyhow!("SOAP {action}: HTTP 401 — Passwort falsch oder User unbekannt?");
     }
     let text = resp.into_string().unwrap_or_default();
     if let Some(desc) = tag_value(&text, "errorDescription") {
@@ -53,7 +51,13 @@ fn fault_of(action: &str, code: u16, mut resp: ureq::Response) -> anyhow::Error 
 }
 
 /// POSTet eine SOAP-Action (mit Digest-Auth bei 401) und liefert den Antwort-Body.
-fn call(box_: &BoxProfile, service: &str, control: &str, action: &str, args: &str) -> anyhow::Result<String> {
+fn call(
+    box_: &BoxProfile,
+    service: &str,
+    control: &str,
+    action: &str,
+    args: &str,
+) -> anyhow::Result<String> {
     let url = format!("{}{}", box_.base_url, control);
     let soapaction = format!("urn:dslforum-org:service:{service}:1#{action}");
     let body = soap_envelope(service, action, args);
@@ -73,7 +77,8 @@ fn call(box_: &BoxProfile, service: &str, control: &str, action: &str, args: &st
                 .context("401 ohne WWW-Authenticate")?;
             let challenge = Challenge::parse(header)?;
             let auth = challenge.authorization(&box_.user, &box_.pass, "POST", control);
-            match a.post(&url)
+            match a
+                .post(&url)
                 .set("Content-Type", "text/xml; charset=\"utf-8\"")
                 .set("SOAPACTION", &format!("\"{soapaction}\""))
                 .set("Authorization", &auth)
@@ -93,8 +98,8 @@ fn call(box_: &BoxProfile, service: &str, control: &str, action: &str, args: &st
     if status == 200 {
         Ok(text)
     } else {
-        let fault = tag_value(&text, "faultstring")
-            .unwrap_or_else(|| "unbekannter SOAP-Fehler".into());
+        let fault =
+            tag_value(&text, "faultstring").unwrap_or_else(|| "unbekannter SOAP-Fehler".into());
         anyhow::bail!("SOAP {action}: HTTP {status}: {fault}")
     }
 }

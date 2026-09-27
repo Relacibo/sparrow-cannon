@@ -101,8 +101,7 @@ async fn russh_connect_exec(
         inactivity_timeout: Some(std::time::Duration::from_secs(15)),
         ..Default::default()
     };
-    let mut session =
-        russh::client::connect(Arc::new(config), (host, port), Client).await?;
+    let mut session = russh::client::connect(Arc::new(config), (host, port), Client).await?;
     let authed = session
         .authenticate_publickey(user.to_string(), Arc::new(key_pair))
         .await?;
@@ -115,9 +114,7 @@ async fn russh_connect_exec(
     loop {
         match channel.wait().await {
             Some(russh::ChannelMsg::Data { ref data }) => out.extend_from_slice(data),
-            Some(russh::ChannelMsg::ExtendedData { ref data, .. }) => {
-                out.extend_from_slice(data)
-            }
+            Some(russh::ChannelMsg::ExtendedData { ref data, .. }) => out.extend_from_slice(data),
             Some(russh::ChannelMsg::ExitStatus { .. }) => {}
             None => break,
             _ => {}

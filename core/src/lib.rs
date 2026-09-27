@@ -40,12 +40,10 @@ pub struct HostStatus {
 
 /// Wakes einen Host über die Box. 💥
 pub fn wake(box_: &BoxProfile, host: &Host) -> anyhow::Result<()> {
-    tr064::wake_on_lan(box_, &host.mac)
-        .with_context(|| format!("wake {} ({})", host.id, host.mac))
+    tr064::wake_on_lan(box_, &host.mac).with_context(|| format!("wake {} ({})", host.id, host.mac))
 }
 
 /// Fragt den Zustand eines Hosts bei der Box ab.
 pub fn status(box_: &BoxProfile, host: &Host) -> anyhow::Result<HostStatus> {
-    tr064::host_status(box_, &host.mac)
-        .with_context(|| format!("status {}", host.id))
+    tr064::host_status(box_, &host.mac).with_context(|| format!("status {}", host.id))
 }

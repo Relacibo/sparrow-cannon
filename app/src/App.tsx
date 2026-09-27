@@ -431,10 +431,7 @@ function App() {
                             }).then(refresh)
                           }
                         >
-                          <Icon
-                            name={w.statusPaused ? "play" : "pause"}
-                            class="size-3"
-                          />
+                          {w.statusPaused ? <FiPlay size={16} /> : <FiPause size={16} />}
                         </button>
                       </Show>
                       <Show when={edit()}>
@@ -443,7 +440,7 @@ function App() {
                           title="Karte bearbeiten"
                           onClick={() => openEdit(w.def)}
                         >
-                          <Icon name="edit" class="size-3" />
+                          <FiEdit2 size={16} />
                         </button>
                         <button
                           class="cursor-pointer rounded p-1 text-muted transition hover:text-down"
@@ -497,6 +494,20 @@ function App() {
             <div class="mb-2 flex items-center justify-between">
               <h2 class="text-sm font-semibold text-muted">ssh-verbindungen</h2>
               <div class="flex items-center gap-2">
+                <Show when={platform() === "android"}>
+                  <button
+                    class="cursor-pointer rounded-lg border border-line px-3 py-1 text-xs text-muted transition hover:border-muted hover:text-fg active:opacity-70"
+                    title="Device-SSH-Key generieren (falls noch nicht geschehen)"
+                    onClick={() =>
+                      invoke<string>("ensure_device_key", {})
+                        .then((pub_line) => navigator.clipboard?.writeText(pub_line))
+                        .then(() => setError("device-pubkey in der zwischenablage ✅"))
+                        .catch((e) => setError(String(e)))
+                    }
+                  >
+                    <FiKey size={12} class="inline" /> key
+                  </button>
+                </Show>
                 <button
                   class="cursor-pointer rounded-lg border border-line px-3 py-1 text-xs text-muted transition hover:border-muted hover:text-fg active:opacity-70"
                   title="Verbindungen testen"
