@@ -45,10 +45,44 @@ fn spawn_scheduler(app: tauri::AppHandle) {
     use tauri::Manager;
     std::thread::spawn(move || {
         let mut last: BTreeMap<String, Instant> = BTreeMap::new();
+        let mut pass_cache: Option<(Instant, BTreeMap<String, sparrow_cannon_core::BoxProfile>)> = None;
         loop {
             std::thread::sleep(Duration::from_secs(1));
             let conf = load_conf(&app);
-            let ctx = widgets::Ctx::from_config(&conf, secrets_dir(&app));
+
+            // pass-cache: secret-tool nicht jede sekunde spawnen (60s ttl)
+            let refresh_pass = pass_cache
+                .as_ref()
+                .map(|(t, _)| t.elapsed() >= Duration::from_secs(60))
+                .unwrap_or(true);
+            if refresh_pass {
+                let mut boxes = BTreeMap::new();
+                for (id, b) in &conf.boxes {
+                    if let Some(pass) = sparrow_cannon_core::pass::resolve(
+                        id,
+                        secrets_dir(&app).as_deref(),
+                    ) {
+                        boxes.insert(
+                            id.clone(),
+                            sparrow_cannon_core::BoxProfile {
+                                name: id.clone(),
+                                base_url: b.base_url.trim_end_matches('/').to_string(),
+                                user: b.user.clone(),
+                                pass,
+                            },
+                        );
+                    }
+                }
+                pass_cache = Some((Instant::now(), boxes));
+            }
+            let ctx = widgets::Ctx {
+                boxes: pass_cache
+                    .as_ref()
+                    .map(|(_, b)| b.clone())
+                    .unwrap_or_default(),
+                ssh: widgets::Ctx::from_config(&conf, secrets_dir(&app)).ssh,
+                secrets_dir: secrets_dir(&app),
+            };
 
             // widget-statusse
             for w in &conf.widgets {
@@ -233,9 +267,16 @@ fn get_box_connections_impl(app: &tauri::AppHandle) -> Result<Vec<BoxConnInfo>, 
 
 #[tauri::command]
 async fn get_box_connections(app: tauri::AppHandle) -> Result<Vec<BoxConnInfo>, String> {
-    tauri::async_runtime::spawn_blocking(move || get_box_connections_impl(&app))
-        .await
-        .map_err(|e| format!("join: {e}"))?
+    tauri::async_runtime::spawn_blocking(move || {
+        let t = std::time::Instant::now();
+        let r = get_box_connections_impl(&app);
+        if t.elapsed() > std::time::Duration::from_millis(300) {
+            tracing::warn!("command get_box_connections: {:?}", t.elapsed());
+        }
+        r
+    })
+    .await
+    .map_err(|e| format!("join: {e}"))?
 }
 
 /// Lokaler SSH-Pubkey (zum Verteilen auf Zielsysteme).
@@ -442,9 +483,16 @@ fn get_widgets_impl(app: &tauri::AppHandle) -> Result<Vec<WidgetState>, String> 
 
 #[tauri::command]
 async fn get_widgets(app: tauri::AppHandle) -> Result<Vec<WidgetState>, String> {
-    tauri::async_runtime::spawn_blocking(move || get_widgets_impl(&app))
-        .await
-        .map_err(|e| format!("join: {e}"))?
+    tauri::async_runtime::spawn_blocking(move || {
+        let t = std::time::Instant::now();
+        let r = get_widgets_impl(&app);
+        if t.elapsed() > std::time::Duration::from_millis(300) {
+            tracing::warn!("command get_widgets: {:?}", t.elapsed());
+        }
+        r
+    })
+    .await
+    .map_err(|e| format!("join: {e}"))?
 }
 
 fn fire_widget_impl(app: &tauri::AppHandle, id: &str, index: usize) -> Result<String, String> {
@@ -470,9 +518,16 @@ fn fire_widget_impl(app: &tauri::AppHandle, id: &str, index: usize) -> Result<St
 
 #[tauri::command]
 async fn fire_widget(id: String, index: usize, app: tauri::AppHandle) -> Result<String, String> {
-    tauri::async_runtime::spawn_blocking(move || fire_widget_impl(&app, &id, index))
-        .await
-        .map_err(|e| format!("join: {e}"))?
+    tauri::async_runtime::spawn_blocking(move || {
+        let t = std::time::Instant::now();
+        let r = fire_widget_impl(&app, &id, index);
+        if t.elapsed() > std::time::Duration::from_millis(300) {
+            tracing::warn!("command fire_widget: {:?}", t.elapsed());
+        }
+        r
+    })
+    .await
+    .map_err(|e| format!("join: {e}"))?
 }
 
 /// Param-Schema der Registry für den "+"-Dialog.
@@ -625,9 +680,16 @@ fn get_status_impl(app: &tauri::AppHandle) -> Result<Vec<StatusRow>, String> {
 
 #[tauri::command]
 async fn get_status(app: tauri::AppHandle) -> Result<Vec<StatusRow>, String> {
-    tauri::async_runtime::spawn_blocking(move || get_status_impl(&app))
-        .await
-        .map_err(|e| format!("join: {e}"))?
+    tauri::async_runtime::spawn_blocking(move || {
+        let t = std::time::Instant::now();
+        let r = get_status_impl(&app);
+        if t.elapsed() > std::time::Duration::from_millis(300) {
+            tracing::warn!("command get_status: {:?}", t.elapsed());
+        }
+        r
+    })
+    .await
+    .map_err(|e| format!("join: {e}"))?
 }
 
 fn wake_impl(app: &tauri::AppHandle, host_id: &str) -> Result<(), String> {
@@ -640,9 +702,16 @@ fn wake_impl(app: &tauri::AppHandle, host_id: &str) -> Result<(), String> {
 
 #[tauri::command]
 async fn wake(host_id: String, app: tauri::AppHandle) -> Result<(), String> {
-    tauri::async_runtime::spawn_blocking(move || wake_impl(&app, &host_id))
-        .await
-        .map_err(|e| format!("join: {e}"))?
+    tauri::async_runtime::spawn_blocking(move || {
+        let t = std::time::Instant::now();
+        let r = wake_impl(&app, &host_id);
+        if t.elapsed() > std::time::Duration::from_millis(300) {
+            tracing::warn!("command wake: {:?}", t.elapsed());
+        }
+        r
+    })
+    .await
+    .map_err(|e| format!("join: {e}"))?
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
