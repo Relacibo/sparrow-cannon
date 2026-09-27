@@ -7,3 +7,9 @@ authors.workspace = true
 
 [dependencies]
 anyhow.workspace = true
+serde.workspace = true
+toml.workspace = true
+ureq.workspace = true
+md-5.workspace = true
+sha2.workspace = true
+getrandom.workspace = true

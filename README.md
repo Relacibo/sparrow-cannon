@@ -34,9 +34,9 @@ erreichbar — kein Profilwechsel nötig.
 
 ## Roadmap
 
-- [ ] `core`: TR-064-Client — Digest-Auth, SOAP-Envelope, Service-Discovery über Gerätebeschreibungs-XML
-- [ ] `core`: Action-Registry — `wake`, `status` (active/IP via `GetSpecificHostEntry`), dann generisch
-- [ ] `cli`: `cannon wake <host>`, `cannon status [host]`
+- [x] `core`: TR-064-Client — Digest-Auth (RFC 2617, handgerollt + Vektortest), SOAP, Service-Discovery
+- [x] `core`: Actions `wake` + `status` — gegen echte FRITZ!OS-8.25-Box getestet
+- [x] `cli`: `cannon wake <host>`, `cannon status [host]`, `cannon doctor` (Service-Liste)
 - [ ] `app`: Tauri v2 Shell (Linux), Host-Liste mit Live-Status-Badges
 - [ ] `app`: Android-Build (NDK), Sideload-APK
 - [ ] generischer Action-Runner aus der Box-Service-XML (WLAN, Gast-WLAN, Reconnect, Reboot)
@@ -45,6 +45,17 @@ erreichbar — kein Profilwechsel nötig.
 
 Feld ist frei: GitHub kennt für „fritzbox wake on lan" nur ein einzelnes
 2★-Skript-Repo; TR-064-Client für Android+Desktop als App: nichts gefunden.
+
+### Firmware-Notizen (FRITZ!OS 8.25, Box 7530 AX)
+
+- `X_AVM-DE_GetSpecificHostEntry` existiert auf Hosts:1 **nicht mehr** — für
+  MAC-Abfragen die plain `GetSpecificHostEntry`, für IPs
+  `X_AVM-DE_GetSpecificHostEntryByIP`. Immer gegen die SCPD prüfen
+  (`cannon doctor` → `tr64desc.xml` → SCPD-URL).
+- `SOAPACTION`-Header muss in doppelten Anführungszeichen geschickt werden.
+- Gefundene Munition für später: `X_AVM-DE_SetAutoWakeOnLANByMACAddress`
+  (Auto-WoL), `X_AVM-DE_HostDoUpdate` (Firmware-Update),
+  `X_AVM-DE_SetPrioritizationByIP` (QoS), `X_AVM-DE_GetHostListPath`.
 
 ## Lizenz
 

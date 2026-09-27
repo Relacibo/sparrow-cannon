@@ -13,3 +13,4 @@ path = "src/main.rs"
 fritz-cannon-core = { path = "../core" }
 anyhow.workspace = true
 clap.workspace = true
+rpassword.workspace = true
