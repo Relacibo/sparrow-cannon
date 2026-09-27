@@ -15,9 +15,27 @@ pub struct ConfigFile {
     #[serde(default)]
     pub hosts: BTreeMap<String, HostFile>,
     #[serde(default)]
+    pub connections: Connections,
+    #[serde(default)]
     pub actions: BTreeMap<String, ActionFile>,
     #[serde(default)]
     pub widgets: Vec<Widget>,
+}
+
+/// Benannte Verbindungen. Widgets referenzieren sie per ID.
+#[derive(Debug, Default, Deserialize, Serialize)]
+pub struct Connections {
+    #[serde(default)]
+    pub ssh: BTreeMap<String, SshConn>,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct SshConn {
+    /// Desktop: Ziel-String für das System-ssh (dest oder ssh-config-Alias).
+    /// Android (Phase 3): zusätzlich keyref für russh.
+    pub dest: String,
+    #[serde(default)]
+    pub note: String,
 }
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -99,6 +117,7 @@ impl ConfigFile {
         Self {
             boxes,
             hosts,
+            connections: Connections::default(),
             actions: BTreeMap::new(),
             widgets: Vec::new(),
         }

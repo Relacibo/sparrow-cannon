@@ -24,12 +24,16 @@ pub struct FieldDef {
 pub enum FieldKind {
     Text,
     Mac,
+    /// Dropdown über connections.ssh.<id>
+    SshConn,
 }
 
-/// Ausführungskontext: aufgelöste Boxen (inkl. Passwort) für fritzbox-Methoden.
+/// Ausführungskontext: aufgelöste Boxen (inkl. Passwort) für fritzbox-Methoden
+/// und die SSH-Verbindungen (Desktop: dest-String; Android später: russh+keyref).
 #[derive(Debug, Clone, Default)]
 pub struct Ctx {
     pub boxes: BTreeMap<String, BoxProfile>,
+    pub ssh: BTreeMap<String, String>,
     pub secrets_dir: Option<std::path::PathBuf>,
 }
 
@@ -50,7 +54,28 @@ impl Ctx {
                 );
             }
         }
-        Ctx { boxes, secrets_dir }
+        let mut ssh_conns = BTreeMap::new();
+        for (id, c) in &conf.connections.ssh {
+            ssh_conns.insert(id.clone(), c.dest.clone());
+        }
+        Ctx {
+            boxes,
+            ssh: ssh_conns,
+            secrets_dir,
+        }
+    }
+
+    /// SSH-Ziel: connection-ID auflösen, sonst rohen host-Parameter nutzen.
+    fn ssh_dest(&self, p: &Params) -> anyhow::Result<String> {
+        let raw = p.get("host");
+        if !raw.is_empty() {
+            return Ok(raw.to_string());
+        }
+        let conn = p.get("connection");
+        self.ssh
+            .get(conn)
+            .cloned()
+            .ok_or_else(|| anyhow::anyhow!("ssh-verbindung '{conn}' nicht gefunden"))
     }
 
     fn box_by_param(&self, p: &Params) -> anyhow::Result<&BoxProfile> {
@@ -144,7 +169,7 @@ pub fn field_defs() -> BTreeMap<&'static str, Vec<FieldDef>> {
     def(
         "ssh.run",
         vec![
-            FieldDef { key: "host", label: "SSH-Ziel", kind: FieldKind::Text, required: true },
+            FieldDef { key: "connection", label: "SSH-Verbindung", kind: FieldKind::SshConn, required: true },
             FieldDef { key: "command", label: "Befehl", kind: FieldKind::Text, required: true },
         ],
     );
@@ -200,7 +225,10 @@ fn ping(host: &str) -> anyhow::Result<String> {
 /// Führt eine Op aus (Action-Feuer ODER Status-Check).
 pub fn execute(op: &Op, ctx: &Ctx) -> anyhow::Result<String> {
     match op.kind.as_str() {
-        "ssh.run" => ssh(op.params.get("host"), op.params.get("command")),
+        "ssh.run" => {
+            let dest = ctx.ssh_dest(&op.params)?;
+            ssh(&dest, op.params.get("command"))
+        }
         "ping.check" => ping(op.params.get("host")),
         "fritzbox.wake" => {
             let b = ctx.box_by_param(&op.params)?;

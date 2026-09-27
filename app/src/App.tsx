@@ -21,6 +21,8 @@ type WidgetRow = {
 };
 
 type MethodDef = { kind: string; fields: { key: string; label: string; kind: string; required: boolean }[] };
+type SshConn = { id: string; dest: string; note: string; ok: boolean; detail: string };
+type BoxConn = { id: string; baseUrl: string; user: string; hasSecret: boolean };
 type Trigger = { kind: string; interval_secs?: number };
 type WidgetNew = {
   id: string;
@@ -42,6 +44,9 @@ function App() {
   const [rows, setRows] = createSignal<Row[]>([]);
   const [wids, setWids] = createSignal<WidgetRow[]>([]);
   const [methods, setMethods] = createSignal<MethodDef[]>([]);
+  const [sshConns, setSshConns] = createSignal<SshConn[]>([]);
+  const [boxConns, setBoxConns] = createSignal<BoxConn[]>([]);
+  const [showConns, setShowConns] = createSignal(false);
   const [showAdd, setShowAdd] = createSignal(false);
   const [addTitle, setAddTitle] = createSignal("");
   const [addKind, setAddKind] = createSignal("");
@@ -68,6 +73,8 @@ function App() {
     try {
       setRows(await invoke<Row[]>("get_status"));
       setWids(await invoke<WidgetRow[]>("get_widgets"));
+      setSshConns(await invoke<SshConn[]>("get_ssh_connections"));
+      setBoxConns(await invoke<BoxConn[]>("get_box_connections"));
       setError("");
       setLastCheck(new Date().toLocaleTimeString());
     } catch (e) {
@@ -228,6 +235,12 @@ function App() {
         </button>
         <button
           class="cursor-pointer rounded-lg border border-line px-3 py-1 text-xs text-muted transition hover:border-muted hover:text-fg active:opacity-70"
+          onClick={() => setShowConns(!showConns())}
+        >
+          Verbindungen
+        </button>
+        <button
+          class="cursor-pointer rounded-lg border border-line px-3 py-1 text-xs text-muted transition hover:border-muted hover:text-fg active:opacity-70"
           onClick={openSetup}
         >
           Box
@@ -236,6 +249,41 @@ function App() {
 
       <Show when={error() && !setupNeeded() && !showSetup()}>
         <div class="mb-3 font-mono text-xs break-all text-err">{error()}</div>
+      </Show>
+
+      <Show when={showConns()}>
+        <div class="mb-3 rounded-xl border border-line bg-card p-4">
+          <h2 class="mb-2 text-sm font-semibold text-muted">verbindungen</h2>
+          <div class="text-xs text-muted">
+            <div class="mb-1 mt-1 font-semibold">fritzbox</div>
+            <For each={boxConns()}>
+              {(c) => (
+                <div class="flex items-center gap-2 py-0.5">
+                  <span class={`size-2 rounded-full ${c.hasSecret ? "bg-up" : "bg-err"}`} />
+                  <span>{c.id}</span>
+                  <span class="font-mono">{c.baseUrl}</span>
+                  <span class="ml-auto">{c.hasSecret ? "passwort ok" : "kein passwort"}</span>
+                </div>
+              )}
+            </For>
+            <div class="mb-1 mt-3 font-semibold">ssh</div>
+            <For each={sshConns()}>
+              {(c) => (
+                <div class="flex items-center gap-2 py-0.5">
+                  <span class={`size-2 rounded-full ${c.ok ? "bg-up" : "bg-err"}`} />
+                  <span>{c.id}</span>
+                  <span class="font-mono">{c.dest}</span>
+                  <span class="ml-auto max-w-[45%] truncate" title={c.detail}>
+                    {c.ok ? "verbunden" : c.detail}
+                  </span>
+                </div>
+              )}
+            </For>
+            <div class="mt-2 text-[10px] opacity-70">
+              neue verbindungen: in der config unter [connections.ssh.id] (android: russh folgt)
+            </div>
+          </div>
+        </div>
       </Show>
 
       <div class="grid grid-cols-1 gap-3.5 sm:grid-cols-2 lg:grid-cols-3">
@@ -458,15 +506,33 @@ function App() {
                       {f.label}
                       {f.required ? " *" : ""}
                     </span>
-                    <input
-                      type="text"
-                      placeholder={f.kind === "mac" ? "aa:bb:cc:dd:ee:ff" : ""}
-                      class="mt-1 w-full rounded-lg border border-line bg-card px-3 py-3 text-sm text-fg"
-                      value={addParams()[f.key] ?? ""}
-                      onInput={(e) =>
-                        setAddParams({ ...addParams(), [f.key]: e.currentTarget.value })
+                    <Show
+                      when={f.kind === "ssh-conn"}
+                      fallback={
+                        <input
+                          type="text"
+                          placeholder={f.kind === "mac" ? "aa:bb:cc:dd:ee:ff" : ""}
+                          class="mt-1 w-full rounded-lg border border-line bg-card px-3 py-3 text-sm text-fg"
+                          value={addParams()[f.key] ?? ""}
+                          onInput={(e) =>
+                            setAddParams({ ...addParams(), [f.key]: e.currentTarget.value })
+                          }
+                        />
                       }
-                    />
+                    >
+                      <select
+                        class="mt-1 w-full rounded-lg border border-line bg-card px-3 py-3 text-sm text-fg"
+                        value={addParams()[f.key] ?? ""}
+                        onChange={(e) =>
+                          setAddParams({ ...addParams(), [f.key]: e.currentTarget.value })
+                        }
+                      >
+                        <option value="">– wählen –</option>
+                        <For each={sshConns()}>
+                          {(c) => <option value={c.id}>{c.id}</option>}
+                        </For>
+                      </select>
+                    </Show>
                   </label>
                 )}
               </For>

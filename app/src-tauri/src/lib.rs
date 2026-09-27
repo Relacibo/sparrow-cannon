@@ -118,6 +118,81 @@ fn load_conf(app: &tauri::AppHandle) -> ConfigFile {
     ConfigFile::load_from(path).unwrap_or_else(|_| ConfigFile::builtin())
 }
 
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SshConnInfo {
+    pub id: String,
+    pub dest: String,
+    pub note: String,
+    pub ok: bool,
+    pub detail: String,
+}
+
+/// Alle SSH-Verbindungen mit Connect-Test.
+#[tauri::command]
+fn get_ssh_connections(app: tauri::AppHandle) -> Result<Vec<SshConnInfo>, String> {
+    let conf = load_conf(&app);
+    let mut out = Vec::new();
+    for (id, c) in &conf.connections.ssh {
+        let r = std::process::Command::new("timeout")
+            .args([
+                "8",
+                "ssh",
+                "-o",
+                "BatchMode=yes",
+                "-o",
+                "ConnectTimeout=4",
+                "-o",
+                "StrictHostKeyChecking=accept-new",
+                "-o",
+                "LogLevel=ERROR",
+                &c.dest,
+                "echo ok",
+            ])
+            .output();
+        let (ok, detail) = match r {
+            Ok(o) if o.status.success() => (true, "verbunden".into()),
+            Ok(o) => (
+                false,
+                String::from_utf8_lossy(&o.stderr).trim().chars().take(120).collect(),
+            ),
+            Err(e) => (false, e.to_string()),
+        };
+        out.push(SshConnInfo {
+            id: id.clone(),
+            dest: c.dest.clone(),
+            note: c.note.clone(),
+            ok,
+            detail,
+        });
+    }
+    Ok(out)
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BoxConnInfo {
+    pub id: String,
+    pub base_url: String,
+    pub user: String,
+    pub has_secret: bool,
+}
+
+#[tauri::command]
+fn get_box_connections(app: tauri::AppHandle) -> Result<Vec<BoxConnInfo>, String> {
+    let conf = load_conf(&app);
+    Ok(conf
+        .boxes
+        .iter()
+        .map(|(id, b)| BoxConnInfo {
+            id: id.clone(),
+            base_url: b.base_url.clone(),
+            user: b.user.clone(),
+            has_secret: pass::resolve(id, secrets_dir(&app).as_deref()).is_some(),
+        })
+        .collect())
+}
+
 #[tauri::command]
 fn get_widgets(app: tauri::AppHandle) -> Result<Vec<WidgetState>, String> {
     let conf = load_conf(&app);
@@ -166,7 +241,11 @@ fn get_methods() -> Vec<MethodDef> {
                 .map(|f| FieldDefUi {
                     key: f.key.to_string(),
                     label: f.label.to_string(),
-                    kind: format!("{:?}", f.kind).to_lowercase(),
+                    kind: match &f.kind {
+                        sparrow_cannon_core::widgets::FieldKind::Text => "text".into(),
+                        sparrow_cannon_core::widgets::FieldKind::Mac => "mac".into(),
+                        sparrow_cannon_core::widgets::FieldKind::SshConn => "ssh-conn".into(),
+                    },
                     required: f.required,
                 })
                 .collect(),
@@ -304,7 +383,9 @@ pub fn run() {
             fire_widget,
             get_methods,
             add_widget,
-            remove_widget
+            remove_widget,
+            get_ssh_connections,
+            get_box_connections
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
