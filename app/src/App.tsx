@@ -15,6 +15,7 @@ function App() {
   const [busy, setBusy] = createSignal("");
   const [error, setError] = createSignal("");
   const [lastCheck, setLastCheck] = createSignal("");
+  const [pw, setPw] = createSignal("");
 
   const refresh = async () => {
     try {
@@ -39,6 +40,17 @@ function App() {
     }
   };
 
+  const savePassword = async () => {
+    try {
+      await invoke("set_password", { p: pw() });
+      setPw("");
+      setError("");
+      await refresh();
+    } catch (e) {
+      setError(String(e));
+    }
+  };
+
   let timer: number;
   onMount(() => {
     refresh();
@@ -51,6 +63,17 @@ function App() {
       <h1>cannon — heimnetz-steuerung</h1>
       <Show when={error()}>
         <div class="err-msg">{error()}</div>
+      </Show>
+      <Show when={error().includes("Passwort")}>
+        <div class="pwrow">
+          <input
+            type="password"
+            placeholder="Fritzbox-Passwort"
+            value={pw()}
+            onInput={(e) => setPw(e.currentTarget.value)}
+          />
+          <button onClick={savePassword}>OK</button>
+        </div>
       </Show>
       <div class="grid">
         <For each={rows()}>
