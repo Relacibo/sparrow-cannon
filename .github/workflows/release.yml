@@ -23,7 +23,8 @@ jobs:
           java-version: "21"
 
       - name: Pin NDK 26.3
-        run: "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --install "ndk;26.3.11579264" >/dev/null
+        run: |
+          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --install "ndk;26.3.11579264" >/dev/null
 
       - name: Install tauri-cli
         run: npm install -g @tauri-apps/cli@^2
