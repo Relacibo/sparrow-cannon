@@ -58,6 +58,8 @@ function App() {
   // Karten-Builder
   const [methods, setMethods] = createSignal<MethodDef[]>([]);
   const [showAdd, setShowAdd] = createSignal(false);
+  const [showSsh, setShowSsh] = createSignal(false);
+  const [showBox, setShowBox] = createSignal(false);
   const [addTitle, setAddTitle] = createSignal("");
   const [addKind, setAddKind] = createSignal("");
   const [addRole, setAddRole] = createSignal<"action" | "status">("action");
@@ -184,6 +186,7 @@ function App() {
     const note = (f.elements.namedItem("note") as HTMLInputElement).value;
     invoke("upsert_ssh_conn", { id, dest, user, note }).then(() => {
       f.reset();
+      setShowSsh(false);
       refresh();
     });
   };
@@ -197,6 +200,7 @@ function App() {
     const pass = (f.elements.namedItem("pass") as HTMLInputElement).value;
     invoke("upsert_box_conn", { id, baseUrl, user, pass }).then(() => {
       f.reset();
+      setShowBox(false);
       refresh();
     });
   };
@@ -366,96 +370,106 @@ function App() {
       </Show>
 
       <Show when={view() === "conns"}>
-        <div class="flex flex-col gap-5">
-          <section class="rounded-xl border border-line bg-card p-4">
-            <h2 class="mb-2 text-sm font-semibold text-muted">ssh-verbindungen</h2>
-            <For each={sshConns()}>
-              {(c) => (
-                <div class="flex items-center gap-2 py-1 text-xs">
-                  <span class={`size-2 rounded-full ${c.ok ? "bg-up" : "bg-err"}`} />
-                  <span class="font-semibold">{c.id}</span>
-                  <span class="font-mono">{c.dest}</span>
-                  <span class="ml-auto max-w-[40%] truncate text-muted" title={c.detail}>
-                    {c.ok ? "verbunden" : c.detail}
-                  </span>
-                  <button
-                    class="cursor-pointer text-muted transition hover:text-fg"
-                    title="In-App-Key generieren (android)"
-                    onClick={() =>
-                      invoke<string>("generate_ssh_key", { id: c.id })
-                        .then((pub_line) => navigator.clipboard?.writeText(pub_line))
-                        .then(() => refresh())
-                        .catch((e) => setError(String(e)))
-                    }
-                  >
-                    🔑
-                  </button>
-                  <button
-                    class="cursor-pointer text-muted transition hover:text-down"
-                    onClick={() => invoke("remove_ssh_conn", { id: c.id }).then(refresh)}
-                  >
-                    ✕
-                  </button>
-                </div>
-              )}
-            </For>
-            <Show when={pubkey()}>
-              <div class="mb-2 flex items-center gap-2 text-[10px] text-muted">
-                <span class="shrink-0">dein pubkey (in die authorized_keys der zielsysteme):</span>
-                <button
-                  class="cursor-pointer rounded border border-line px-2 py-0.5 transition hover:text-fg"
-                  onClick={() => navigator.clipboard?.writeText(pubkey())}
-                >
-                  kopieren
-                </button>
-              </div>
-            </Show>
-            <form
-              class="mt-3 flex flex-wrap gap-2"
-              onSubmit={upsertSsh}
-            >
-              <input name="id" required placeholder="id" class="w-24 rounded-lg border border-line bg-bg px-2 py-2 text-xs text-fg" />
-              <input name="dest" required placeholder="ziel (host oder user@host)" class="min-w-0 flex-1 rounded-lg border border-line bg-bg px-2 py-2 text-xs text-fg" />
-              <input name="user" placeholder="benutzer (android)" class="w-28 rounded-lg border border-line bg-bg px-2 py-2 text-xs text-fg" />
-              <input name="note" placeholder="notiz" class="w-32 rounded-lg border border-line bg-bg px-2 py-2 text-xs text-fg" />
-              <button class="cursor-pointer rounded-lg bg-accent px-4 py-2 text-xs font-semibold text-[#0d1117] hover:brightness-110">
-                speichern
+        <div class="flex flex-col gap-6">
+          <section>
+            <div class="mb-2 flex items-center justify-between">
+              <h2 class="text-sm font-semibold text-muted">ssh-verbindungen</h2>
+              <button
+                class="cursor-pointer rounded-lg border border-line px-3 py-1 text-xs text-muted transition hover:border-muted hover:text-fg active:opacity-70"
+                onClick={() => setShowSsh(true)}
+              >
+                + neu
               </button>
-            </form>
+            </div>
+            <div class="flex flex-col gap-2">
+              <For each={sshConns()}>
+                {(c) => (
+                  <div class="flex items-center gap-2 rounded-xl border border-line bg-card p-3">
+                    <span class={`size-2 shrink-0 rounded-full ${c.ok ? "bg-up" : "bg-err"}`} />
+                    <div class="min-w-0">
+                      <div class="text-sm font-semibold">{c.id}</div>
+                      <div class="truncate font-mono text-xs text-muted">{c.dest}</div>
+                    </div>
+                    <span class="ml-auto max-w-[35%] truncate text-xs text-muted" title={c.detail}>
+                      {c.ok ? "verbunden" : c.detail}
+                    </span>
+                    <button
+                      class="shrink-0 cursor-pointer text-muted transition hover:text-fg"
+                      title="In-App-Key generieren (android)"
+                      onClick={() =>
+                        invoke<string>("generate_ssh_key", { id: c.id })
+                          .then((pub_line) => navigator.clipboard?.writeText(pub_line))
+                          .then(() => refresh())
+                          .catch((e) => setError(String(e)))
+                      }
+                    >
+                      🔑
+                    </button>
+                    <button
+                      class="shrink-0 cursor-pointer text-muted transition hover:text-down"
+                      onClick={() => invoke("remove_ssh_conn", { id: c.id }).then(refresh)}
+                    >
+                      ✕
+                    </button>
+                  </div>
+                )}
+              </For>
+              <Show when={!sshConns().length}>
+                <div class="rounded-xl border border-dashed border-line bg-card p-4 text-sm text-muted">
+                  noch keine ssh-verbindung
+                </div>
+              </Show>
+            </div>
           </section>
 
-          <section class="rounded-xl border border-line bg-card p-4">
-            <h2 class="mb-2 text-sm font-semibold text-muted">fritzbox-verbindungen</h2>
-            <For each={boxConns()}>
-              {(c) => (
-                <div class="flex items-center gap-2 py-1 text-xs">
-                  <span class={`size-2 rounded-full ${c.hasSecret ? "bg-up" : "bg-err"}`} />
-                  <span class="font-semibold">{c.id}</span>
-                  <span class="font-mono">{c.baseUrl}</span>
-                  <span class="text-muted">{c.user}</span>
-                  <span class="ml-auto text-muted">{c.hasSecret ? "passwort ok" : "kein passwort"}</span>
-                  <button
-                    class="cursor-pointer text-muted transition hover:text-down"
-                    onClick={() => invoke("remove_box_conn", { id: c.id }).then(refresh)}
-                  >
-                    ✕
-                  </button>
-                </div>
-              )}
-            </For>
-            <form
-              class="mt-3 flex flex-wrap gap-2"
-              onSubmit={upsertBox}
-            >
-              <input name="id" required placeholder="id" class="w-24 rounded-lg border border-line bg-bg px-2 py-2 text-xs text-fg" />
-              <input name="baseUrl" required placeholder="http://192.168.178.1:49000" class="min-w-0 flex-1 rounded-lg border border-line bg-bg px-2 py-2 text-xs text-fg" />
-              <input name="user" required placeholder="benutzer" class="w-28 rounded-lg border border-line bg-bg px-2 py-2 text-xs text-fg" />
-              <input name="pass" type="password" placeholder="passwort (leer=behalten)" class="w-36 rounded-lg border border-line bg-bg px-2 py-2 text-xs text-fg" />
-              <button class="cursor-pointer rounded-lg bg-accent px-4 py-2 text-xs font-semibold text-[#0d1117] hover:brightness-110">
-                speichern
+          <section>
+            <div class="mb-2 flex items-center justify-between">
+              <h2 class="text-sm font-semibold text-muted">fritzbox-verbindungen</h2>
+              <button
+                class="cursor-pointer rounded-lg border border-line px-3 py-1 text-xs text-muted transition hover:border-muted hover:text-fg active:opacity-70"
+                onClick={() => setShowBox(true)}
+              >
+                + neu
               </button>
-            </form>
+            </div>
+            <div class="flex flex-col gap-2">
+              <For each={boxConns()}>
+                {(c) => (
+                  <div class="flex items-center gap-2 rounded-xl border border-line bg-card p-3">
+                    <span class={`size-2 shrink-0 rounded-full ${c.hasSecret ? "bg-up" : "bg-err"}`} />
+                    <div class="min-w-0">
+                      <div class="text-sm font-semibold">{c.id}</div>
+                      <div class="truncate font-mono text-xs text-muted">{c.baseUrl}</div>
+                    </div>
+                    <span class="ml-auto text-xs text-muted">{c.hasSecret ? "passwort ok" : "kein passwort"}</span>
+                    <button
+                      class="shrink-0 cursor-pointer text-muted transition hover:text-down"
+                      onClick={() => invoke("remove_box_conn", { id: c.id }).then(refresh)}
+                    >
+                      ✕
+                    </button>
+                  </div>
+                )}
+              </For>
+              <Show when={!boxConns().length}>
+                <div class="rounded-xl border border-dashed border-line bg-card p-4 text-sm text-muted">
+                  noch keine fritzbox-verbindung
+                </div>
+              </Show>
+            </div>
           </section>
+
+          <Show when={pubkey()}>
+            <div class="flex items-center gap-2 rounded-xl border border-dashed border-line bg-card p-3 text-xs text-muted">
+              <span class="shrink-0">dein pubkey für neue zielsysteme:</span>
+              <button
+                class="cursor-pointer rounded border border-line px-2 py-0.5 transition hover:text-fg"
+                onClick={() => navigator.clipboard?.writeText(pubkey())}
+              >
+                kopieren
+              </button>
+            </div>
+          </Show>
           <p class="text-[10px] text-muted opacity-70">
             android (phase 3): ssh über russh mit in-app-key statt system-ssh
           </p>
@@ -484,6 +498,96 @@ function App() {
           <span class="text-err">· Box nicht erreichbar (Timeout?)</span>
         </Show>
       </p>
+
+      {/* SSH-Verbindung */}
+      <Show when={showSsh()}>
+        <div
+          class="fixed inset-0 z-50 flex items-end justify-center bg-black/60 p-0 sm:items-center sm:p-4"
+          onClick={(e) => {
+            if (e.target === e.currentTarget) setShowSsh(false);
+          }}
+        >
+          <div class="w-full max-w-sm rounded-t-2xl border border-line bg-bg p-5 sm:rounded-2xl">
+            <div class="mb-3 flex items-center justify-between">
+              <h2 class="font-semibold">SSH-Verbindung</h2>
+              <button
+                class="cursor-pointer text-xs text-muted transition hover:text-fg"
+                onClick={() => setShowSsh(false)}
+              >
+                abbrechen
+              </button>
+            </div>
+            <form class="flex flex-col gap-3" onSubmit={upsertSsh}>
+              <label class="block">
+                <span class="text-xs text-muted">ID *</span>
+                <input name="id" required class="mt-1 w-full rounded-lg border border-line bg-card px-3 py-3 text-sm text-fg" />
+              </label>
+              <label class="block">
+                <span class="text-xs text-muted">Ziel *</span>
+                <input name="dest" required placeholder="host oder user@host" class="mt-1 w-full rounded-lg border border-line bg-card px-3 py-3 text-sm text-fg" />
+              </label>
+              <label class="block">
+                <span class="text-xs text-muted">Benutzer (android)</span>
+                <input name="user" class="mt-1 w-full rounded-lg border border-line bg-card px-3 py-3 text-sm text-fg" />
+              </label>
+              <label class="block">
+                <span class="text-xs text-muted">Notiz</span>
+                <input name="note" class="mt-1 w-full rounded-lg border border-line bg-card px-3 py-3 text-sm text-fg" />
+              </label>
+              <button
+                class="mt-1 cursor-pointer rounded-lg bg-accent py-3 text-sm font-semibold text-[#0d1117] transition hover:brightness-110 active:opacity-80"
+              >
+                Speichern
+              </button>
+            </form>
+          </div>
+        </div>
+      </Show>
+
+      {/* Fritzbox-Verbindung */}
+      <Show when={showBox()}>
+        <div
+          class="fixed inset-0 z-50 flex items-end justify-center bg-black/60 p-0 sm:items-center sm:p-4"
+          onClick={(e) => {
+            if (e.target === e.currentTarget) setShowBox(false);
+          }}
+        >
+          <div class="w-full max-w-sm rounded-t-2xl border border-line bg-bg p-5 sm:rounded-2xl">
+            <div class="mb-3 flex items-center justify-between">
+              <h2 class="font-semibold">Fritzbox-Verbindung</h2>
+              <button
+                class="cursor-pointer text-xs text-muted transition hover:text-fg"
+                onClick={() => setShowBox(false)}
+              >
+                abbrechen
+              </button>
+            </div>
+            <form class="flex flex-col gap-3" onSubmit={upsertBox}>
+              <label class="block">
+                <span class="text-xs text-muted">ID *</span>
+                <input name="id" required class="mt-1 w-full rounded-lg border border-line bg-card px-3 py-3 text-sm text-fg" />
+              </label>
+              <label class="block">
+                <span class="text-xs text-muted">Box-URL *</span>
+                <input name="baseUrl" required placeholder="http://192.168.178.1:49000" class="mt-1 w-full rounded-lg border border-line bg-card px-3 py-3 text-sm text-fg" />
+              </label>
+              <label class="block">
+                <span class="text-xs text-muted">Benutzer *</span>
+                <input name="user" required class="mt-1 w-full rounded-lg border border-line bg-card px-3 py-3 text-sm text-fg" />
+              </label>
+              <label class="block">
+                <span class="text-xs text-muted">Passwort</span>
+                <input name="pass" type="password" placeholder="leer = bestehendes behalten" class="mt-1 w-full rounded-lg border border-line bg-card px-3 py-3 text-sm text-fg" />
+              </label>
+              <button
+                class="mt-1 cursor-pointer rounded-lg bg-accent py-3 text-sm font-semibold text-[#0d1117] transition hover:brightness-110 active:opacity-80"
+              >
+                Speichern
+              </button>
+            </form>
+          </div>
+        </div>
+      </Show>
 
       {/* Karten-Builder */}
       <Show when={showAdd()}>
