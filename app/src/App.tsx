@@ -19,7 +19,10 @@ type WidgetRow = {
   buttons: ActionBtn[];
 };
 
-type MethodDef = { kind: string; fields: { key: string; label: string; kind: string; required: boolean }[] };
+type MethodDef = {
+  kind: string;
+  fields: { key: string; label: string; kind: string; required: boolean }[];
+};
 type SshConn = { id: string; dest: string; note: string; ok: boolean; detail: string };
 type BoxConn = { id: string; baseUrl: string; user: string; hasSecret: boolean };
 type Trigger = { kind: string; interval_secs?: number };
@@ -37,16 +40,18 @@ const dotColor = (s: Row["state"]) =>
 const actionDot = (s: string) =>
   s === "OK" ? "bg-up" : s === "FAIL" ? "bg-down" : s === "ERR" ? "bg-err" : "bg-muted";
 
-const boxUnknown = (r: Row) => /714|NoSuchEntry/i.test(r.hostname ?? "");
-
 function App() {
   const [rows, setRows] = createSignal<Row[]>([]);
   const [wids, setWids] = createSignal<WidgetRow[]>([]);
-  const [methods, setMethods] = createSignal<MethodDef[]>([]);
-  const [sshConns, setSshConns] = createSignal<SshConn[]>([]);
-  const [boxConns, setBoxConns] = createSignal<BoxConn[]>([]);
+  const [busy, setBusy] = createSignal("");
+  const [error, setError] = createSignal("");
+  const [lastCheck, setLastCheck] = createSignal("");
+  const [slow, setSlow] = createSignal(false);
   const [view, setView] = createSignal<"dash" | "conns">("dash");
   const [edit, setEdit] = createSignal(false);
+
+  // Karten-Builder
+  const [methods, setMethods] = createSignal<MethodDef[]>([]);
   const [showAdd, setShowAdd] = createSignal(false);
   const [addTitle, setAddTitle] = createSignal("");
   const [addKind, setAddKind] = createSignal("");
@@ -55,18 +60,7 @@ function App() {
   const [addTrigger, setAddTrigger] = createSignal("manual");
   const [addInterval, setAddInterval] = createSignal("60");
   const [addWhen, setAddWhen] = createSignal("always");
-  const [busy, setBusy] = createSignal("");
-  const [error, setError] = createSignal("");
-  const [lastCheck, setLastCheck] = createSignal("");
-  const [slow, setSlow] = createSignal(false);
-
-  // Setup-Modal
-  const [showSetup, setShowSetup] = createSignal(false);
-  const [boxUrl, setBoxUrl] = createSignal("");
-  const [user, setUser] = createSignal("");
-  const [pw, setPw] = createSignal("");
   const [saving, setSaving] = createSignal(false);
-  const [hasSaved, setHasSaved] = createSignal(false);
 
   const refresh = async () => {
     setSlow(false);
@@ -79,7 +73,9 @@ function App() {
       setError("");
       setLastCheck(new Date().toLocaleTimeString());
     } catch (e) {
-      setError(String(e));
+      const msg = String(e);
+      setError(msg);
+      if (msg.includes("kein Box-Passwort")) setView("conns");
     } finally {
       window.clearTimeout(t);
       setSlow(false);
@@ -173,43 +169,33 @@ function App() {
     }
   };
 
-  const saveBoxConfig = async () => {
-    setSaving(true);
-    setError("");
-    try {
-      await invoke("set_box_config", { baseUrl: boxUrl(), user: user(), p: pw() });
-      setHasSaved(true);
-      setPw("");
-      await refresh();
-      if (rows().length && !error()) setShowSetup(false);
-    } catch (e) {
-      setError(String(e));
-    } finally {
-      setSaving(false);
-    }
+  const upsertSsh = (e: Event) => {
+    e.preventDefault();
+    const f = e.currentTarget as HTMLFormElement;
+    const id = (f.elements.namedItem("id") as HTMLInputElement).value;
+    const dest = (f.elements.namedItem("dest") as HTMLInputElement).value;
+    const note = (f.elements.namedItem("note") as HTMLInputElement).value;
+    invoke("upsert_ssh_conn", { id, dest, note }).then(() => {
+      f.reset();
+      refresh();
+    });
   };
 
-  const prefillSetup = async () => {
-    try {
-      const info = await invoke<{ baseUrl: string; user: string; hasSaved: boolean }>(
-        "get_box_info"
-      );
-      if (!boxUrl()) setBoxUrl(info.baseUrl);
-      if (!user()) setUser(info.user);
-      setHasSaved(info.hasSaved);
-    } catch (e) {
-      setError(String(e));
-    }
-  };
-
-  const openSetup = async () => {
-    await prefillSetup();
-    setShowSetup(true);
+  const upsertBox = (e: Event) => {
+    e.preventDefault();
+    const f = e.currentTarget as HTMLFormElement;
+    const id = (f.elements.namedItem("id") as HTMLInputElement).value;
+    const baseUrl = (f.elements.namedItem("baseUrl") as HTMLInputElement).value;
+    const user = (f.elements.namedItem("user") as HTMLInputElement).value;
+    const pass = (f.elements.namedItem("pass") as HTMLInputElement).value;
+    invoke("upsert_box_conn", { id, baseUrl, user, pass }).then(() => {
+      f.reset();
+      refresh();
+    });
   };
 
   let timer: number;
-  onMount(async () => {
-    await prefillSetup();
+  onMount(() => {
     refresh();
     timer = setInterval(() => {
       if (!slow()) refresh();
@@ -223,158 +209,159 @@ function App() {
     <div class="mx-auto max-w-[900px] p-5 pb-[max(1.25rem,env(safe-area-inset-bottom))]">
       <h1 class="mb-4 flex items-center gap-2 text-lg font-semibold text-muted">
         sparrow-cannon
-        <Show
-          when={slow()}
-          fallback={<span class="hidden" aria-hidden="true" />}
-        >
+        <Show when={slow()}>
           <span
             class="inline-block size-3 animate-spin rounded-full border-2 border-line border-t-accent"
             role="status"
           />
         </Show>
-        <button
-          title="Karten bearbeiten"
-          class={`cursor-pointer rounded-lg border px-2.5 py-1 text-xs transition active:opacity-70 ${
-            edit()
-              ? "border-accent text-accent"
-              : "border-line text-muted hover:border-muted hover:text-fg"
-          }`}
-          onClick={() => setEdit(!edit())}
-        >
-          <svg
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            stroke-width="2"
-            stroke-linecap="round"
-            stroke-linejoin="round"
-            class="size-3.5"
-          >
-            <path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z" />
-          </svg>
-        </button>
-        <Show when={edit()}>
+        <span class="ml-auto flex items-center gap-2">
           <button
-            class="cursor-pointer rounded-lg border border-line px-3 py-1 text-xs text-muted transition hover:border-muted hover:text-fg active:opacity-70"
-            onClick={openAdd}
+            class={`cursor-pointer rounded-lg border px-3 py-1 text-xs transition active:opacity-70 ${
+              view() === "dash"
+                ? "border-accent text-accent"
+                : "border-line text-muted hover:border-muted hover:text-fg"
+            }`}
+            onClick={() => setView("dash")}
           >
-            + Karte
+            Karten
           </button>
-        </Show>
-        <button
-          class={`cursor-pointer rounded-lg border px-3 py-1 text-xs transition active:opacity-70 ${view() === "dash" ? "border-accent text-accent" : "border-line text-muted hover:border-muted hover:text-fg"}`}
-          onClick={() => setView("dash")}
-        >
-          Karten
-        </button>
-        <button
-          class={`cursor-pointer rounded-lg border px-3 py-1 text-xs transition active:opacity-70 ${view() === "conns" ? "border-accent text-accent" : "border-line text-muted hover:border-muted hover:text-fg"}`}
-          onClick={() => setView("conns")}
-        >
-          Verbindungen
-        </button>
-        <button
-          class="cursor-pointer rounded-lg border border-line px-3 py-1 text-xs text-muted transition hover:border-muted hover:text-fg active:opacity-70"
-          onClick={openSetup}
-        >
-          Box
-        </button>
+          <button
+            class={`cursor-pointer rounded-lg border px-3 py-1 text-xs transition active:opacity-70 ${
+              view() === "conns"
+                ? "border-accent text-accent"
+                : "border-line text-muted hover:border-muted hover:text-fg"
+            }`}
+            onClick={() => setView("conns")}
+          >
+            Verbindungen
+          </button>
+          <Show when={view() === "dash"}>
+            <button
+              title="Karten bearbeiten"
+              class={`cursor-pointer rounded-lg border px-2.5 py-1 text-xs transition active:opacity-70 ${
+                edit()
+                  ? "border-accent text-accent"
+                  : "border-line text-muted hover:border-muted hover:text-fg"
+              }`}
+              onClick={() => setEdit(!edit())}
+            >
+              <svg
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="2"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                class="size-3.5"
+              >
+                <path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z" />
+              </svg>
+            </button>
+            <Show when={edit()}>
+              <button
+                class="cursor-pointer rounded-lg border border-line px-3 py-1 text-xs text-muted transition hover:border-muted hover:text-fg active:opacity-70"
+                onClick={openAdd}
+              >
+                + Karte
+              </button>
+            </Show>
+          </Show>
+        </span>
       </h1>
 
-      <Show when={error() && !setupNeeded() && !showSetup()}>
+      <Show when={error() && !setupNeeded()}>
         <div class="mb-3 font-mono text-xs break-all text-err">{error()}</div>
       </Show>
 
       <Show when={view() === "dash"}>
-      <div class="grid grid-cols-1 gap-3.5 sm:grid-cols-2 lg:grid-cols-3">
-        <For each={rows()}>
-          {(r) => (
-            <div class="flex flex-col gap-2 rounded-xl border border-line bg-card p-4">
-              <div class="flex items-center gap-2 font-semibold">
-                <span class={`size-2.5 shrink-0 rounded-full ${dotColor(r.state)}`} />
-                <span>{r.id}</span>
-                <span class="ml-auto font-mono text-xs font-normal text-muted">
-                  {r.ip ?? r.state}
-                </span>
-              </div>
-              <div class="min-h-4 text-xs text-muted">
-                <Show
-                  when={r.state !== "ERR" || !boxUnknown(r)}
-                  fallback={<span class="text-err">MAC der Box unbekannt?</span>}
-                >
-                  {[r.hostname, r.ip].filter(Boolean).join(" · ") || r.note}
-                </Show>
-              </div>
-              <div class="font-mono text-[10px] text-muted opacity-70">{r.mac}</div>
-              <button
-                disabled={busy() === r.id || r.state === "UP"}
-                onClick={() => wake(r.id)}
-                class="cursor-pointer rounded-lg bg-accent py-3 text-sm font-semibold text-[#0d1117] transition hover:brightness-110 active:opacity-80 disabled:cursor-default disabled:opacity-60"
-              >
-                {busy() === r.id
-                  ? "wird geweckt…"
-                  : r.state === "UP"
-                    ? "läuft"
-                    : "Wake"}
-              </button>
-            </div>
-          )}
-        </For>
-        <Show when={!rows().length && !error()}>
-          <div class="rounded-xl border border-line bg-card p-4 text-sm text-muted">
-            prüfe Status…
-          </div>
-        </Show>
-      </div>
-
-      <Show when={wids().length}>
-        <div class="mt-6 grid grid-cols-1 gap-3.5 sm:grid-cols-2 lg:grid-cols-3">
-          <For each={wids()}>
-            {(w) => (
-              <div
-                class={`flex flex-col gap-2 rounded-xl border bg-card p-4 ${
-                  edit() ? "border-dashed border-muted" : "border-line"
-                }`}
-              >
+        <div class="grid grid-cols-1 gap-3.5 sm:grid-cols-2 lg:grid-cols-3">
+          <For each={rows()}>
+            {(r) => (
+              <div class="flex flex-col gap-2 rounded-xl border border-line bg-card p-4">
                 <div class="flex items-center gap-2 font-semibold">
-                  <span class={`size-2.5 shrink-0 rounded-full ${actionDot(w.statusState)}`} />
-                  <span>{w.title}</span>
-                  <Show when={edit()}>
-                    <button
-                      class="ml-auto cursor-pointer text-[10px] text-muted transition hover:text-down"
-                      onClick={() => removeWidget(w.id)}
-                      title="Karte entfernen"
-                    >
-                      ✕
-                    </button>
-                  </Show>
+                  <span class={`size-2.5 shrink-0 rounded-full ${dotColor(r.state)}`} />
+                  <span>{r.id}</span>
+                  <span class="ml-auto font-mono text-xs font-normal text-muted">
+                    {r.ip ?? r.state}
+                  </span>
                 </div>
                 <div class="min-h-4 text-xs text-muted">
-                  {w.statusOutput.split("\n")[0] || w.statusState}
+                  <Show
+                    when={r.state !== "ERR" || !boxUnknown(r)}
+                    fallback={<span class="text-err">MAC der Box unbekannt?</span>}
+                  >
+                    {[r.hostname, r.ip].filter(Boolean).join(" · ") || r.note}
+                  </Show>
                 </div>
-                <Show
-                  when={w.buttons.length}
-                  fallback={<div class="py-1 text-center text-xs text-muted">{w.statusState}</div>}
+                <div class="font-mono text-[10px] text-muted opacity-70">{r.mac}</div>
+                <button
+                  disabled={busy() === r.id || r.state === "UP"}
+                  onClick={() => wake(r.id)}
+                  class="cursor-pointer rounded-lg bg-accent py-3 text-sm font-semibold text-[#0d1117] transition hover:brightness-110 active:opacity-80 disabled:cursor-default disabled:opacity-60"
                 >
-                  <div class="flex flex-col gap-2">
-                    <For each={w.buttons}>
-                      {(b) => (
-                        <button
-                          disabled={busy() === w.id}
-                          onClick={() => fireWidget(w.id, b.index)}
-                          class="cursor-pointer rounded-lg bg-accent py-3 text-sm font-semibold text-[#0d1117] transition hover:brightness-110 active:opacity-80 disabled:cursor-default disabled:opacity-60"
-                        >
-                          {busy() === w.id ? "… feuert" : b.label}
-                        </button>
-                      )}
-                    </For>
-                  </div>
-                </Show>
+                  {busy() === r.id ? "wird geweckt…" : r.state === "UP" ? "läuft" : "Wake"}
+                </button>
               </div>
             )}
           </For>
+          <Show when={!rows().length && !error()}>
+            <div class="rounded-xl border border-line bg-card p-4 text-sm text-muted">
+              prüfe Status…
+            </div>
+          </Show>
         </div>
-      </Show>
+
+        <Show when={wids().length}>
+          <div class="mt-6 grid grid-cols-1 gap-3.5 sm:grid-cols-2 lg:grid-cols-3">
+            <For each={wids()}>
+              {(w) => (
+                <div
+                  class={`flex flex-col gap-2 rounded-xl border bg-card p-4 ${
+                    edit() ? "border-dashed border-muted" : "border-line"
+                  }`}
+                >
+                  <div class="flex items-center gap-2 font-semibold">
+                    <span class={`size-2.5 shrink-0 rounded-full ${actionDot(w.statusState)}`} />
+                    <span>{w.title}</span>
+                    <Show when={edit()}>
+                      <button
+                        class="ml-auto cursor-pointer text-[10px] text-muted transition hover:text-down"
+                        onClick={() => removeWidget(w.id)}
+                        title="Karte entfernen"
+                      >
+                        ✕
+                      </button>
+                    </Show>
+                  </div>
+                  <div class="min-h-4 text-xs text-muted">
+                    {w.statusOutput.split("\n")[0] || w.statusState}
+                  </div>
+                  <Show
+                    when={w.buttons.length}
+                    fallback={
+                      <div class="py-1 text-center text-xs text-muted">{w.statusState}</div>
+                    }
+                  >
+                    <div class="flex flex-col gap-2">
+                      <For each={w.buttons}>
+                        {(b) => (
+                          <button
+                            disabled={busy() === w.id}
+                            onClick={() => fireWidget(w.id, b.index)}
+                            class="cursor-pointer rounded-lg bg-accent py-3 text-sm font-semibold text-[#0d1117] transition hover:brightness-110 active:opacity-80 disabled:cursor-default disabled:opacity-60"
+                          >
+                            {busy() === w.id ? "… feuert" : b.label}
+                          </button>
+                        )}
+                      </For>
+                    </div>
+                  </Show>
+                </div>
+              )}
+            </For>
+          </div>
+        </Show>
       </Show>
 
       <Show when={view() === "conns"}>
@@ -401,22 +388,14 @@ function App() {
             </For>
             <form
               class="mt-3 flex flex-wrap gap-2"
-              onSubmit={(e) => {
-                e.preventDefault();
-                const f = e.currentTarget as HTMLFormElement;
-                const id = (f.elements.namedItem("id") as HTMLInputElement).value;
-                const dest = (f.elements.namedItem("dest") as HTMLInputElement).value;
-                const note = (f.elements.namedItem("note") as HTMLInputElement).value;
-                invoke("upsert_ssh_conn", { id, dest, note }).then(() => {
-                  f.reset();
-                  refresh();
-                });
-              }}
+              onSubmit={upsertSsh}
             >
               <input name="id" required placeholder="id" class="w-24 rounded-lg border border-line bg-bg px-2 py-2 text-xs text-fg" />
               <input name="dest" required placeholder="ziel (user@host / alias)" class="min-w-0 flex-1 rounded-lg border border-line bg-bg px-2 py-2 text-xs text-fg" />
               <input name="note" placeholder="notiz" class="w-32 rounded-lg border border-line bg-bg px-2 py-2 text-xs text-fg" />
-              <button class="cursor-pointer rounded-lg bg-accent px-4 py-2 text-xs font-semibold text-[#0d1117] hover:brightness-110">speichern</button>
+              <button class="cursor-pointer rounded-lg bg-accent px-4 py-2 text-xs font-semibold text-[#0d1117] hover:brightness-110">
+                speichern
+              </button>
             </form>
           </section>
 
@@ -441,24 +420,15 @@ function App() {
             </For>
             <form
               class="mt-3 flex flex-wrap gap-2"
-              onSubmit={(e) => {
-                e.preventDefault();
-                const f = e.currentTarget as HTMLFormElement;
-                const id = (f.elements.namedItem("id") as HTMLInputElement).value;
-                const baseUrl = (f.elements.namedItem("baseUrl") as HTMLInputElement).value;
-                const user = (f.elements.namedItem("user") as HTMLInputElement).value;
-                const pass = (f.elements.namedItem("pass") as HTMLInputElement).value;
-                invoke("upsert_box_conn", { id, baseUrl, user, pass }).then(() => {
-                  f.reset();
-                  refresh();
-                });
-              }}
+              onSubmit={upsertBox}
             >
               <input name="id" required placeholder="id" class="w-24 rounded-lg border border-line bg-bg px-2 py-2 text-xs text-fg" />
               <input name="baseUrl" required placeholder="http://192.168.178.1:49000" class="min-w-0 flex-1 rounded-lg border border-line bg-bg px-2 py-2 text-xs text-fg" />
               <input name="user" required placeholder="benutzer" class="w-28 rounded-lg border border-line bg-bg px-2 py-2 text-xs text-fg" />
               <input name="pass" type="password" placeholder="passwort (leer=behalten)" class="w-36 rounded-lg border border-line bg-bg px-2 py-2 text-xs text-fg" />
-              <button class="cursor-pointer rounded-lg bg-accent px-4 py-2 text-xs font-semibold text-[#0d1117] hover:brightness-110">speichern</button>
+              <button class="cursor-pointer rounded-lg bg-accent px-4 py-2 text-xs font-semibold text-[#0d1117] hover:brightness-110">
+                speichern
+              </button>
             </form>
           </section>
           <p class="text-[10px] text-muted opacity-70">
@@ -473,75 +443,6 @@ function App() {
           <span class="text-err">· Box nicht erreichbar (Timeout?)</span>
         </Show>
       </p>
-
-      {/* Setup-Modal */}
-      <Show when={showSetup()}>
-        <div
-          class="fixed inset-0 z-50 flex items-end justify-center bg-black/60 p-0 sm:items-center sm:p-4"
-          onClick={(e) => {
-            if (e.target === e.currentTarget && hasSaved()) setShowSetup(false);
-          }}
-        >
-          <div class="w-full max-w-sm rounded-t-2xl border border-line bg-bg p-5 sm:rounded-2xl">
-            <div class="mb-3 flex items-center justify-between">
-              <h2 class="font-semibold">Box einrichten</h2>
-              <Show when={hasSaved()}>
-                <button
-                  class="cursor-pointer text-xs text-muted transition hover:text-fg active:opacity-70"
-                  onClick={() => setShowSetup(false)}
-                >
-                  später
-                </button>
-              </Show>
-            </div>
-            <Show when={error() && !setupNeeded()}>
-              <div class="mb-3 font-mono text-xs break-all text-err">{error()}</div>
-            </Show>
-            <div class="flex flex-col gap-3">
-              <label class="block">
-                <span class="text-xs text-muted">Box-URL</span>
-                <input
-                  type="text"
-                  class="mt-1 w-full rounded-lg border border-line bg-card px-3 py-3 text-sm text-fg"
-                  placeholder="http://192.168.178.1:49000"
-                  value={boxUrl()}
-                  onInput={(e) => setBoxUrl(e.currentTarget.value)}
-                  disabled={saving()}
-                />
-              </label>
-              <label class="block">
-                <span class="text-xs text-muted">Benutzer</span>
-                <input
-                  type="text"
-                  class="mt-1 w-full rounded-lg border border-line bg-card px-3 py-3 text-sm text-fg"
-                  placeholder="fritz8427"
-                  value={user()}
-                  onInput={(e) => setUser(e.currentTarget.value)}
-                  disabled={saving()}
-                />
-              </label>
-              <label class="block">
-                <span class="text-xs text-muted">Passwort</span>
-                <input
-                  type="password"
-                  class="mt-1 w-full rounded-lg border border-line bg-card px-3 py-3 text-sm text-fg"
-                  placeholder="••••••••"
-                  value={pw()}
-                  onInput={(e) => setPw(e.currentTarget.value)}
-                  disabled={saving()}
-                />
-              </label>
-              <button
-                class="mt-1 cursor-pointer rounded-lg bg-accent py-3 text-sm font-semibold text-[#0d1117] transition hover:brightness-110 active:opacity-80 disabled:cursor-not-allowed disabled:opacity-50"
-                disabled={saving() || !pw() || !boxUrl()}
-                onClick={saveBoxConfig}
-              >
-                {saving() ? "prüfe…" : "Speichern & prüfen"}
-              </button>
-            </div>
-          </div>
-        </div>
-      </Show>
 
       {/* Karten-Builder */}
       <Show when={showAdd()}>
@@ -643,6 +544,20 @@ function App() {
                   </label>
                 )}
               </For>
+              <Show when={addRole() === "action"}>
+                <label class="block">
+                  <span class="text-xs text-muted">Button zeigen</span>
+                  <select
+                    class="mt-1 w-full rounded-lg border border-line bg-card px-3 py-3 text-sm text-fg"
+                    value={addWhen()}
+                    onChange={(e) => setAddWhen(e.currentTarget.value)}
+                  >
+                    <option value="always">immer</option>
+                    <option value="ok">nur wenn Status OK (an)</option>
+                    <option value="fail">nur wenn Status FAIL (aus)</option>
+                  </select>
+                </label>
+              </Show>
               <label class="block">
                 <span class="text-xs text-muted">Auslöser</span>
                 <select
@@ -664,20 +579,6 @@ function App() {
                     value={addInterval()}
                     onInput={(e) => setAddInterval(e.currentTarget.value)}
                   />
-                </label>
-              </Show>
-              <Show when={addRole() === "action"}>
-                <label class="block">
-                  <span class="text-xs text-muted">Button zeigen</span>
-                  <select
-                    class="mt-1 w-full rounded-lg border border-line bg-card px-3 py-3 text-sm text-fg"
-                    value={addWhen()}
-                    onChange={(e) => setAddWhen(e.currentTarget.value)}
-                  >
-                    <option value="always">immer</option>
-                    <option value="ok">nur wenn Status OK (an)</option>
-                    <option value="fail">nur wenn Status FAIL (aus)</option>
-                  </select>
                 </label>
               </Show>
               <button
