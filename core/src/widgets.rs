@@ -131,9 +131,12 @@ pub struct Widget {
     /// Deaktivierte Widgets werden nicht mehr geprüft/gefeuert.
     #[serde(default)]
     pub disabled: bool,
-    /// Periodische Status-Abfrage pausiert (Button auf der Karte).
+    /// Periodische Status-Abfrage pausiert (Button oben rechts auf der Karte).
     #[serde(default)]
     pub status_paused: bool,
+    /// Karte bietet den Pause/Play-Schalter an (Option beim Erstellen).
+    #[serde(default)]
+    pub pausable: bool,
     #[serde(default)]
     pub status: Option<Op>,
     /// Buttons mit Bedingung: when = always | ok | fail
@@ -190,6 +193,7 @@ pub struct WidgetState {
     pub title: String,
     pub disabled: bool,
     pub status_paused: bool,
+    pub pausable: bool,
     /// Status-Teil: OK | FAIL | ERR | IDLE
     pub status_state: String,
     pub status_output: String,
@@ -358,14 +362,20 @@ pub fn widget_states(widgets: &[Widget], ctx: &Ctx) -> Vec<WidgetState> {
             }
             actions.extend(w.actions.iter().cloned());
 
+            // pausiert: alle optionen verfügbar (status unbekannt → manuell entscheiden)
             let buttons: Vec<ActionBtn> = actions
                 .iter()
                 .enumerate()
-                .filter(|(_, a)| match (a.when.as_str(), status_state.as_str()) {
-                    ("ok", "OK") => true,
-                    ("fail", "FAIL" | "ERR") => true,
-                    ("always", _) => true,
-                    _ => false,
+                .filter(|(_, a)| {
+                    if w.status_paused {
+                        return true;
+                    }
+                    match (a.when.as_str(), status_state.as_str()) {
+                        ("ok", "OK") => true,
+                        ("fail", "FAIL" | "ERR") => true,
+                        ("always", _) => true,
+                        _ => false,
+                    }
                 })
                 .map(|(i, a)| ActionBtn {
                     label: a.label.clone(),
@@ -378,6 +388,7 @@ pub fn widget_states(widgets: &[Widget], ctx: &Ctx) -> Vec<WidgetState> {
                 id: w.id.clone(),
                 disabled: w.disabled,
                 status_paused: w.status_paused,
+                pausable: w.pausable,
                 title: if w.title.is_empty() {
                     w.id.clone()
                 } else {

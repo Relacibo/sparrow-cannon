@@ -16,6 +16,7 @@ type WidgetRow = {
   title: string;
   disabled: boolean;
   statusPaused: boolean;
+  pausable: boolean;
   statusState: string;
   statusOutput: string;
   buttons: ActionBtn[];
@@ -34,6 +35,7 @@ type WidgetNew = {
   actions: { label: string; when: string; op: { kind: string; params: Record<string, string> } }[];
   status: { kind: string; params: Record<string, string> } | null;
   trigger: Trigger;
+  pausable: boolean;
 };
 
 const dotColor = (s: Row["state"]) =>
@@ -72,6 +74,7 @@ function App() {
   const [addTrigger, setAddTrigger] = createSignal("manual");
   const [addInterval, setAddInterval] = createSignal("60");
   const [addWhen, setAddWhen] = createSignal("always");
+  const [addPausable, setAddPausable] = createSignal(true);
   const [addStart, setAddStart] = createSignal(false);
   const [saving, setSaving] = createSignal(false);
 
@@ -159,6 +162,7 @@ function App() {
             : [],
         status: addRole() === "status" ? op : null,
         status_paused: addRole() === "status" && !addStart(),
+        pausable: addRole() === "status" && addPausable(),
         trigger:
           addTrigger() === "schedule"
             ? { kind: "schedule", interval_secs: Number(addInterval()) || 60 }
@@ -353,18 +357,30 @@ function App() {
                     <Show when={w.disabled}>
                       <span class="text-[10px] font-normal text-muted">deaktiviert</span>
                     </Show>
-                    <Show when={edit()}>
-                      <span class="ml-auto flex items-center gap-2">
+                    <span class="ml-auto flex items-center gap-1.5">
+                      <Show when={w.pausable && !w.disabled}>
                         <button
-                          class="cursor-pointer text-[10px] text-muted transition hover:text-fg"
-                          title={w.disabled ? "aktivieren" : "deaktivieren"}
+                          class={`cursor-pointer rounded border px-1.5 py-0.5 text-[10px] transition ${
+                            w.statusPaused
+                              ? "border-line text-muted hover:text-fg"
+                              : "border-accent text-accent"
+                          }`}
+                          title={
+                            w.statusPaused
+                              ? "Status-Abfrage starten"
+                              : "Status-Abfrage pausieren"
+                          }
                           onClick={() =>
-                            invoke("set_widget_enabled", { id: w.id, enabled: w.disabled })
-                              .then(refresh)
+                            invoke("set_status_paused", {
+                              id: w.id,
+                              paused: !w.statusPaused,
+                            }).then(refresh)
                           }
                         >
-                          {w.disabled ? "aktivieren" : "deaktivieren"}
+                          {w.statusPaused ? "▶" : "⏸"}
                         </button>
+                      </Show>
+                      <Show when={edit()}>
                         <button
                           class="cursor-pointer text-[10px] text-muted transition hover:text-down"
                           onClick={() => removeWidget(w.id)}
@@ -372,14 +388,14 @@ function App() {
                         >
                           ✕
                         </button>
-                      </span>
-                    </Show>
+                      </Show>
+                    </span>
                   </div>
                   <div class="min-h-4 text-xs text-muted">
                     {w.disabled
                       ? "status wird nicht abgefragt"
                       : w.statusPaused
-                        ? "status pausiert"
+                        ? "pausiert — alle aktionen verfügbar"
                         : w.statusOutput.split("\n")[0] || w.statusState}
                   </div>
                   <Show when={!w.disabled}>
@@ -759,6 +775,15 @@ function App() {
                 )}
               </For>
               <Show when={addRole() === "status"}>
+                <label class="flex items-center gap-2 text-xs text-muted">
+                  <input
+                    type="checkbox"
+                    class="size-4 accent-[#7aa2f7]"
+                    checked={addPausable()}
+                    onChange={(e) => setAddPausable(e.currentTarget.checked)}
+                  />
+                  Pausierbar (Umschalter oben rechts auf der Karte)
+                </label>
                 <label class="block">
                   <span class="text-xs text-muted">Status-Abfrage</span>
                   <select
