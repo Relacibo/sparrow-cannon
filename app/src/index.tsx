@@ -24,10 +24,10 @@ function paintProbe(now: number) {
     delta > 150 &&
     delta < 10000 &&
     document.visibilityState === "visible" &&
-    (window as unknown as { __recentUpdate?: boolean }).__recentUpdate
+    true
   ) {
     invoke("js_log", {
-      msg: `paint-stall: ${Math.round(delta)}ms @ ${new Date().toLocaleTimeString()}`,
+      msg: `RAF-GAP: ${Math.round(delta)}ms @ ${new Date().toLocaleTimeString()}`,
     }).catch(() => {});
   }
   requestAnimationFrame(paintProbe);
