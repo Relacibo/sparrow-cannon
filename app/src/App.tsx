@@ -81,7 +81,7 @@ function App() {
     }
   };
 
-  const openSetup = async () => {
+  const prefillSetup = async () => {
     try {
       const info = await invoke<{ baseUrl: string; user: string; hasSaved: boolean }>(
         "get_box_info"
@@ -92,12 +92,16 @@ function App() {
     } catch (e) {
       setError(String(e));
     }
+  };
+
+  const openSetup = async () => {
+    await prefillSetup();
     setShowSetup(true);
   };
 
   let timer: number;
   onMount(async () => {
-    await openSetup();
+    await prefillSetup();
     refresh();
     timer = setInterval(() => {
       if (!slow()) refresh();

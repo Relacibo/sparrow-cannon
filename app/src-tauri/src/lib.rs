@@ -3,7 +3,6 @@ use sparrow_cannon_core::{pass, BoxProfile, Host};
 use serde::Serialize;
 use std::collections::BTreeMap;
 use std::path::PathBuf;
-use std::sync::Mutex;
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -16,105 +15,102 @@ pub struct StatusRow {
     hostname: Option<String>,
 }
 
-/// Im Setup-Modal gesetzte Box-Konfiguration; überschreibt Config/Keyring.
-#[derive(Clone)]
-struct BoxConfig {
-    base_url: String,
-    user: String,
-    pass: String,
-}
-
-struct AppState(Mutex<Option<BoxConfig>>);
-
-impl AppState {
-    /// Lädt die Box-Konfiguration aus dem App-Datenverzeichnis.
-    /// Desktop: 2 Zeilen (url, user) — Passwort lebt im Keyring.
-    /// Android (kein Secret Service): 3 Zeilen (url, user, pass), chmod 600.
-    /// Legacy 3-Zeilen-Dateien mit Passwort migrieren automatisch in den Keyring.
-    fn load(dir: PathBuf) -> Self {
-        let file = dir.join("box.txt");
-        let mut cfg = std::fs::read_to_string(&file).ok().and_then(|raw| {
-            let mut lines = raw.lines();
-            let base_url = lines.next()?.trim().to_string();
-            let user = lines.next()?.trim().to_string();
-            let pass = lines.next().map(|l| l.trim().to_string()).unwrap_or_default();
-            (base_url.starts_with("http") && !user.is_empty()).then_some(BoxConfig {
-                base_url,
-                user,
-                pass,
-            })
-        });
-
-        if let Some(c) = &cfg {
-            if !c.pass.is_empty() {
-                // Legacy: Passwort in der Datei → Keyring, Datei entschlacken
-                if sparrow_cannon_core::pass::store_to_keyring(&c.pass) {
-                    let _ = std::fs::write(
-                        &file,
-                        format!("{}\n{}\n", c.base_url, c.user),
-                    );
-                    eprintln!("[cannon] legacy-passwort in keyring migriert");
-                }
-            }
-        }
-        if let Some(c) = &mut cfg {
-            c.pass = String::new(); // Passwort kommt ausschließlich aus dem Keyring
-        }
-        if cfg.is_some() {
-            eprintln!("[cannon] box-config geladen aus {}", file.display());
-        }
-        AppState(Mutex::new(cfg))
+/// Desktop: ~/.config/sparrow-cannon/config.toml.
+/// Android: <app_data_dir>/config.toml.
+fn config_path(app: &tauri::AppHandle) -> PathBuf {
+    use tauri::Manager;
+    #[cfg(target_os = "android")]
+    {
+        app.path()
+            .app_data_dir()
+            .expect("app_data_dir nicht auflösbar")
+            .join("config.toml")
     }
-
-    fn store(&self, dir: &PathBuf, cfg: &BoxConfig) {
-        let _ = std::fs::create_dir_all(dir);
-        let file = dir.join("box.txt");
-        let keyring_ok = sparrow_cannon_core::pass::store_to_keyring(&cfg.pass);
-        let body = if keyring_ok {
-            format!("{}\n{}\n", cfg.base_url, cfg.user)
-        } else {
-            // Android-Fallback: Klartext in der Sandbox, chmod 600
-            format!("{}\n{}\n{}\n", cfg.base_url, cfg.user, cfg.pass)
-        };
-        if std::fs::write(&file, body).is_ok() {
-            #[cfg(unix)]
-            {
-                use std::os::unix::fs::PermissionsExt;
-                let _ =
-                    std::fs::set_permissions(&file, std::fs::Permissions::from_mode(0o600));
-            }
-            eprintln!(
-                "[cannon] box-config gespeichert ({})",
-                if keyring_ok { "keyring" } else { "datei" }
-            );
-        }
+    #[cfg(not(target_os = "android"))]
+    {
+        let _ = app;
+        ConfigFile::default_path()
     }
 }
 
-/// Config + Passwort laden, Default-Box wählen (Setup-Overrides anwenden).
-fn setup(state: &AppState) -> Result<(BoxProfile, BTreeMap<String, Host>), String> {
-    let conf = ConfigFile::load_default_or_builtin();
-    let cfg = state.0.lock().unwrap().clone();
-    let pass = cfg
-        .as_ref()
-        .filter(|c| !c.pass.is_empty())
-        .map(|c| c.pass.clone())
-        .or_else(pass::resolve_from_env_or_keyring)
+/// Verzeichnis für den Datei-Fallback der Passwörter (nur Android relevant —
+/// dort gibt es keinen Secret Service).
+fn secrets_dir(app: &tauri::AppHandle) -> Option<PathBuf> {
+    use tauri::Manager;
+    #[cfg(target_os = "android")]
+    {
+        app.path()
+            .app_data_dir()
+            .expect("app_data_dir nicht auflösbar")
+            .into()
+    }
+    #[cfg(not(target_os = "android"))]
+    {
+        let _ = app;
+        None
+    }
+}
+
+/// Alte box.txt (Vorgängerversion) entfernen — Werte leben jetzt in der
+/// config.toml, das Passwort im Keyring bzw. unter secrets/.
+fn migrate_legacy_box_txt(dir: &PathBuf, conf: &mut ConfigFile) {
+    let legacy = dir.join("box.txt");
+    let Ok(raw) = std::fs::read_to_string(&legacy) else {
+        return;
+    };
+    let mut lines = raw.lines();
+    let (Some(url), Some(user)) = (
+        lines.next().map(str::trim),
+        lines.next().map(str::trim),
+    ) else {
+        let _ = std::fs::remove_file(&legacy);
+        return;
+    };
+    if !url.is_empty() && !conf.boxes.is_empty() {
+        let id = conf.boxes.keys().next().cloned().unwrap_or_default();
+        conf.upsert_box(&id, url, user);
+        let _ = conf.save_to(&config_path_static());
+        eprintln!("[cannon] legacy box.txt übernommen");
+    }
+    let _ = std::fs::remove_file(&legacy);
+}
+
+fn config_path_static() -> PathBuf {
+    ConfigFile::default_path()
+}
+
+/// Config + Passwort laden, Default-Box wählen.
+fn setup(app: &tauri::AppHandle) -> Result<(BoxProfile, BTreeMap<String, Host>), String> {
+    use tauri::Manager;
+    let path = config_path(app);
+    let mut conf = ConfigFile::load_from(path.clone()).unwrap_or_else(|_| {
+        let builtin = ConfigFile::builtin();
+        let _ = builtin.save_to(&path);
+        builtin
+    });
+    migrate_legacy_box_txt(
+        &app.path()
+            .app_data_dir()
+            .expect("app_data_dir nicht auflösbar"),
+        &mut conf,
+    );
+    let (box_id, _url, _user) = conf
+        .boxes
+        .iter()
+        .next()
+        .map(|(id, b)| (id.clone(), b.base_url.clone(), b.user.clone()))
+        .ok_or("keine [boxes.*] in der config")?;
+    let pass = pass::resolve(&box_id, secrets_dir(app).as_deref())
         .ok_or("kein Box-Passwort — bitte unten einrichten")?;
     let profiles = conf.build_with_pass(&pass);
-    let mut box_ = profiles
-        .values()
-        .next()
+    let box_ = profiles
+        .get(&box_id)
         .cloned()
-        .ok_or("keine [boxes.*] in der config")?;
-    if let Some(c) = &cfg {
-        box_.base_url = c.base_url.trim_end_matches('/').to_string();
-        box_.user = c.user.clone();
-    }
+        .ok_or("box fehlt nach dem build")?;
     Ok((box_, conf.hosts()))
 }
 
-/// Werte zum Vorausfüllen des Setup-Modals (gespeicherte oder config-defaults).
+/// Werte zum Vorausfüllen des Setup-Modals.
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct BoxInfo {
@@ -124,25 +120,21 @@ pub struct BoxInfo {
 }
 
 #[tauri::command]
-fn get_box_info(state: tauri::State<AppState>) -> Result<BoxInfo, String> {
-    let conf = ConfigFile::load_default_or_builtin();
-    let (default_url, default_user) = conf
+fn get_box_info(app: tauri::AppHandle) -> Result<BoxInfo, String> {
+    use tauri::Manager;
+    let path = config_path(&app);
+    let conf = ConfigFile::load_from(path.clone()).unwrap_or_else(|_| ConfigFile::builtin());
+    let (box_id, base_url, user) = conf
         .boxes
-        .values()
+        .iter()
         .next()
-        .map(|b| (b.base_url.clone(), b.user.clone()))
+        .map(|(id, b)| (id.clone(), b.base_url.clone(), b.user.clone()))
         .ok_or_else(|| "keine [boxes.*] in der config".to_string())?;
-    if let Some(c) = state.0.lock().unwrap().as_ref() {
-        return Ok(BoxInfo {
-            base_url: c.base_url.clone(),
-            user: c.user.clone(),
-            has_saved: true,
-        });
-    }
+    let has_saved = pass::resolve(&box_id, secrets_dir(&app).as_deref()).is_some();
     Ok(BoxInfo {
-        base_url: default_url,
-        user: default_user,
-        has_saved: false,
+        base_url,
+        user,
+        has_saved,
     })
 }
 
@@ -151,32 +143,32 @@ fn set_box_config(
     base_url: String,
     user: String,
     p: String,
-    state: tauri::State<AppState>,
     app: tauri::AppHandle,
 ) -> Result<(), String> {
     use tauri::Manager;
     if !base_url.starts_with("http") {
         return Err("Box-URL muss mit http:// beginnen".into());
     }
-    let cfg = BoxConfig {
-        base_url: base_url.trim_end_matches('/').to_string(),
-        user,
-        pass: p,
-    };
-    let dir = app
-        .path()
-        .app_data_dir()
-        .map_err(|e| format!("app-data-dir: {e}"))?;
-    state.store(&dir, &cfg);
-    *state.0.lock().unwrap() = Some(cfg);
+    let path = config_path(&app);
+    let mut conf = ConfigFile::load_from(path.clone()).unwrap_or_else(|_| ConfigFile::builtin());
+    let box_id = conf
+        .boxes
+        .keys()
+        .next()
+        .cloned()
+        .unwrap_or_else(|| "daheim".into());
+    conf.upsert_box(&box_id, &base_url, &user);
+    conf.save_to(&path).map_err(|e| e.to_string())?;
+    let stored = pass::store(&box_id, &p, secrets_dir(&app).as_deref());
+    eprintln!("[cannon] passwort gespeichert: {stored}");
     Ok(())
 }
 
 #[tauri::command]
-fn get_status(state: tauri::State<AppState>) -> Result<Vec<StatusRow>, String> {
+fn get_status(app: tauri::AppHandle) -> Result<Vec<StatusRow>, String> {
     let t0 = std::time::Instant::now();
-    let (box_, hosts) = setup(&state)?;
-    let rows: Vec<StatusRow> = hosts
+    let (box_, hosts) = setup(&app)?;
+    Ok(hosts
         .into_iter()
         .map(|(id, h)| match sparrow_cannon_core::status(&box_, &h) {
             Ok(s) => {
@@ -202,14 +194,12 @@ fn get_status(state: tauri::State<AppState>) -> Result<Vec<StatusRow>, String> {
                 }
             }
         })
-        .collect();
-    eprintln!("[cannon] get_status gesamt: {:?}", t0.elapsed());
-    Ok(rows)
+        .collect())
 }
 
 #[tauri::command]
-fn wake(host_id: String, state: tauri::State<AppState>) -> Result<(), String> {
-    let (box_, hosts) = setup(&state)?;
+fn wake(host_id: String, app: tauri::AppHandle) -> Result<(), String> {
+    let (box_, hosts) = setup(&app)?;
     let h = hosts.get(&host_id).ok_or(format!("host '{host_id}' fehlt"))?;
     sparrow_cannon_core::wake(&box_, h).map_err(|e| e.to_string())
 }
@@ -217,15 +207,6 @@ fn wake(host_id: String, state: tauri::State<AppState>) -> Result<(), String> {
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
-        .setup(|app| {
-            use tauri::Manager;
-            let dir = app
-                .path()
-                .app_data_dir()
-                .expect("app_data_dir nicht auflösbar");
-            app.manage(AppState::load(dir));
-            Ok(())
-        })
         .invoke_handler(tauri::generate_handler![
             get_status,
             wake,

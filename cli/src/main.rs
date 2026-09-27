@@ -29,9 +29,9 @@ enum Cmd {
     Doctor,
 }
 
-/// Passwort-Auflösung: CANNON_PASS → secret-tool (keyring) → Prompt.
-fn resolve_pass() -> anyhow::Result<String> {
-    sparrow_cannon_core::pass::resolve_from_env_or_keyring().map_or_else(
+/// Passwort-Auflösung für die gewählte Box: CANNON_PASS → keyring(box-id) → Prompt.
+fn resolve_pass(box_id: &str) -> anyhow::Result<String> {
+    sparrow_cannon_core::pass::resolve(box_id, None).map_or_else(
         || rpassword::prompt_password("Fritzbox-Passwort: ").context("passwort-eingabe"),
         Ok,
     )
@@ -57,12 +57,17 @@ fn select_box(
 fn main() -> anyhow::Result<()> {
     let cli = Cli::parse();
     let conf = ConfigFile::load_default().context("config-problem")?;
-    let pass = resolve_pass()?;
+    let box_name = cli
+        .r#box
+        .clone()
+        .or_else(|| conf.boxes.keys().next().cloned())
+        .context("keine [boxes.*] in der config")?;
+    let pass = resolve_pass(&box_name)?;
     let profiles = conf.build_with_pass(&pass);
+    let box_ = select_box(&profiles, &cli.r#box)?;
 
     match cli.cmd {
         Cmd::Wake { host } => {
-            let box_ = select_box(&profiles, &cli.r#box)?;
             let hosts = conf.hosts();
             let h: &Host = hosts
                 .get(&host)
@@ -71,7 +76,6 @@ fn main() -> anyhow::Result<()> {
             println!("wake an {host} ({}) geschickt.", h.mac);
         }
         Cmd::Status { host } => {
-            let box_ = select_box(&profiles, &cli.r#box)?;
             let mut hosts = conf.hosts();
             if let Some(h) = &host {
                 let one = hosts.remove(h).context(format!("host '{h}' fehlt"))?;
@@ -93,7 +97,6 @@ fn main() -> anyhow::Result<()> {
             }
         }
         Cmd::Doctor => {
-            let box_ = select_box(&profiles, &cli.r#box)?;
             println!(
                 "box '{}' → {} (user {})",
                 box_.name, box_.base_url, box_.user

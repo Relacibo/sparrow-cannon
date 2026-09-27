@@ -1,12 +1,12 @@
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use crate::{BoxProfile, Host};
 
 /// Config-Datei: `~/.config/sparrow-cannon/config.toml`.
 /// Passwörter gehören hier niemals hinein.
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Serialize)]
 pub struct ConfigFile {
     #[serde(default)]
     pub boxes: BTreeMap<String, BoxFile>,
@@ -14,13 +14,13 @@ pub struct ConfigFile {
     pub hosts: BTreeMap<String, HostFile>,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Serialize)]
 pub struct BoxFile {
     pub base_url: String,
     pub user: String,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Serialize)]
 pub struct HostFile {
     pub mac: String,
     #[serde(default)]
@@ -37,10 +37,35 @@ impl ConfigFile {
     }
 
     pub fn load_default() -> anyhow::Result<Self> {
-        let path = Self::default_path();
+        Self::load_from(Self::default_path())
+    }
+
+    pub fn load_from(path: PathBuf) -> anyhow::Result<Self> {
         let raw = std::fs::read_to_string(&path)
             .map_err(|e| anyhow::anyhow!("config nicht lesbar {}: {e}", path.display()))?;
         toml::from_str(&raw).map_err(|e| anyhow::anyhow!("config {} parse: {e}", path.display()))
+    }
+
+    /// Schreibt die Config (URL/User — niemals Passwörter!) zurück.
+    pub fn save_to(&self, path: &Path) -> anyhow::Result<()> {
+        if let Some(parent) = path.parent() {
+            std::fs::create_dir_all(parent)?;
+        }
+        let body = toml::to_string_pretty(self)
+            .map_err(|e| anyhow::anyhow!("config serialisieren: {e}"))?;
+        std::fs::write(path, body)
+            .map_err(|e| anyhow::anyhow!("config {} schreiben: {e}", path.display()))
+    }
+
+    /// Fügt eine Box hinzu oder aktualisiert sie (Setup-Modal / CLI).
+    pub fn upsert_box(&mut self, id: &str, base_url: &str, user: &str) {
+        self.boxes.insert(
+            id.to_string(),
+            BoxFile {
+                base_url: base_url.trim_end_matches('/').to_string(),
+                user: user.to_string(),
+            },
+        );
     }
 
     /// Eingebauter Fallback (Android hat kein ~/.config): die daheim-Box + pc.
