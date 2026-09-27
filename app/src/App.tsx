@@ -352,8 +352,10 @@ function App() {
         </div>
       </Show>
 
-      <Show when={view() === "dash"}>
-        <div class="grid grid-cols-1 gap-3.5 sm:grid-cols-2 lg:grid-cols-3">
+        <div
+          class="grid grid-cols-1 gap-3.5 sm:grid-cols-2 lg:grid-cols-3"
+          style={view() === "dash" ? "" : "display:none"}
+        >
           <For each={rows()}>
             {(r) => (
               <div class="flex flex-col gap-2 rounded-xl border border-line bg-card p-4">
@@ -390,8 +392,10 @@ function App() {
           </Show>
         </div>
 
-        <Show when={wids().length}>
-          <div class="mt-6 grid grid-cols-1 gap-3.5 sm:grid-cols-2 lg:grid-cols-3">
+        <div
+          class="mt-6 grid grid-cols-1 gap-3.5 sm:grid-cols-2 lg:grid-cols-3"
+          style={view() === "dash" && (wids().length || edit()) ? "" : "display:none"}
+        >
             <For each={wids()}>
               {(w) => (
                 <div
@@ -484,12 +488,21 @@ function App() {
                 </div>
               )}
             </For>
+            <Show when={edit() && view() === "dash"}>
+              <button
+                class="flex min-h-[120px] cursor-pointer flex-col items-center justify-center gap-1 rounded-xl border border-dashed border-line bg-card/50 p-4 text-muted transition hover:border-accent hover:text-accent"
+                onClick={openAdd}
+              >
+                <span class="text-xl">+</span>
+                <span class="text-xs">Neue Karte</span>
+              </button>
+            </Show>
           </div>
-        </Show>
-      </Show>
 
-      <Show when={view() === "conns"}>
-        <div class="flex flex-col gap-6">
+        <div
+          class="flex flex-col gap-6"
+          style={view() === "conns" ? "" : "display:none"}
+        >
           <section>
             <div class="mb-2 flex items-center justify-between">
               <h2 class="text-sm font-semibold text-muted">ssh-verbindungen</h2>
@@ -635,7 +648,6 @@ function App() {
             </p>
           </Show>
         </div>
-      </Show>
 
       <p class="mt-4 flex items-center gap-2 text-xs text-muted">
         <Show

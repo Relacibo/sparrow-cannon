@@ -1,7 +1,13 @@
 /* @refresh reload */
 import { invoke } from "@tauri-apps/api/core";
 import { render } from "solid-js/web";
+import "./index.css";
+import App from "./App";
 
+const root = document.getElementById("root");
+if (root) render(() => <App />, root);
+
+// js-fehler → journal
 window.addEventListener("error", (e) => {
   invoke("js_log", { msg: `${e.message} @ ${e.filename}:${e.lineno}` }).catch(() => {});
 });
@@ -9,8 +15,7 @@ window.addEventListener("unhandledrejection", (e) => {
   invoke("js_log", { msg: `unhandled rejection: ${e.reason}` }).catch(() => {});
 });
 
-// paint-stall-monitor: rAF-gaps = painting hängt (idle-pause macht false positives,
-// deshalb nur werten, wenn kürzlich ein dom-update war — flag aus App.tsx)
+// paint-stall-monitor: rAF-gaps = painting hängt (nur relevant nach dom-updates)
 let lastPaint = performance.now();
 function paintProbe(now: number) {
   const delta = now - lastPaint;
@@ -29,7 +34,7 @@ function paintProbe(now: number) {
 }
 requestAnimationFrame(paintProbe);
 
-// freeze-probe v2: timer-drift statt rAF (rAF pausiert im idle → false positives)
+// timer-probe: main-thread-drift (feuert auch im idle pünktlich)
 let lastTick = performance.now();
 setInterval(() => {
   const now = performance.now();
@@ -41,10 +46,3 @@ setInterval(() => {
     }).catch(() => {});
   }
 }, 100);
-}
-requestAnimationFrame(frameProbe);
-import "./index.css";
-import App from "./App";
-
-const root = document.getElementById("root");
-if (root) render(() => <App />, root);
