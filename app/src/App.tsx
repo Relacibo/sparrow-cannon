@@ -644,7 +644,7 @@ function App() {
           </Show>
           <Show when={platform() === "android"}>
             <p class="text-[10px] text-muted opacity-70">
-              🔑 = key generieren · 📋 = pubkey kopieren (in authorized_keys des zielsystems)
+              key = in-app-key generieren · copy = pubkey kopieren (für authorized_keys der zielsysteme)
             </p>
           </Show>
         </div>
