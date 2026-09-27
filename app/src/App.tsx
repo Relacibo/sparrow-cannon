@@ -216,12 +216,6 @@ function App() {
     <div class="mx-auto max-w-[900px] p-5 pb-[max(1.25rem,env(safe-area-inset-bottom))]">
       <h1 class="mb-4 flex items-center gap-2 text-lg font-semibold text-muted">
         sparrow-cannon
-        <Show when={slow()}>
-          <span
-            class="inline-block size-3 animate-spin rounded-full border-2 border-line border-t-accent"
-            role="status"
-          />
-        </Show>
         <span class="ml-auto flex items-center gap-2">
           <button
             class={`cursor-pointer rounded-lg border px-3 py-1 text-xs transition active:opacity-70 ${
@@ -474,6 +468,12 @@ function App() {
           <span class="text-err">· Box nicht erreichbar (Timeout?)</span>
         </Show>
       </p>
+      <Show when={slow()}>
+        <div
+          class="fixed right-3 bottom-3 z-40 size-3 animate-spin rounded-full border-2 border-line border-t-accent"
+          role="status"
+        />
+      </Show>
 
       {/* Karten-Builder */}
       <Show when={showAdd()}>
