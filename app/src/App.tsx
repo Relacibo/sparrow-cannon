@@ -13,6 +13,8 @@ type Row = {
 const dotColor = (s: Row["state"]) =>
   s === "UP" ? "bg-up" : s === "DOWN" ? "bg-down" : "bg-err";
 
+const boxUnknown = (r: Row) => /714|NoSuchEntry/i.test(r.hostname ?? "");
+
 function App() {
   const [rows, setRows] = createSignal<Row[]>([]);
   const [busy, setBusy] = createSignal("");
@@ -141,8 +143,14 @@ function App() {
                 </span>
               </div>
               <div class="min-h-4 text-xs text-muted">
-                {[r.hostname, r.ip].filter(Boolean).join(" · ") || r.note}
+                <Show
+                  when={r.state !== "ERR" || !boxUnknown(r)}
+                  fallback={<span class="text-err">MAC der Box unbekannt?</span>}
+                >
+                  {[r.hostname, r.ip].filter(Boolean).join(" · ") || r.note}
+                </Show>
               </div>
+              <div class="font-mono text-[10px] text-muted opacity-70">{r.mac}</div>
               <button
                 disabled={busy() === r.id}
                 onClick={() => wake(r.id)}
