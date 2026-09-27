@@ -46,6 +46,7 @@ function App() {
   const [sshConns, setSshConns] = createSignal<SshConn[]>([]);
   const [boxConns, setBoxConns] = createSignal<BoxConn[]>([]);
   const [view, setView] = createSignal<"dash" | "conns">("dash");
+  const [edit, setEdit] = createSignal(false);
   const [showAdd, setShowAdd] = createSignal(false);
   const [addTitle, setAddTitle] = createSignal("");
   const [addKind, setAddKind] = createSignal("");
@@ -232,11 +233,34 @@ function App() {
           />
         </Show>
         <button
-          class="ml-auto cursor-pointer rounded-lg border border-line px-3 py-1 text-xs text-muted transition hover:border-muted hover:text-fg active:opacity-70"
-          onClick={openAdd}
+          title="Karten bearbeiten"
+          class={`cursor-pointer rounded-lg border px-2.5 py-1 text-xs transition active:opacity-70 ${
+            edit()
+              ? "border-accent text-accent"
+              : "border-line text-muted hover:border-muted hover:text-fg"
+          }`}
+          onClick={() => setEdit(!edit())}
         >
-          + Karte
+          <svg
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+            class="size-3.5"
+          >
+            <path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z" />
+          </svg>
         </button>
+        <Show when={edit()}>
+          <button
+            class="cursor-pointer rounded-lg border border-line px-3 py-1 text-xs text-muted transition hover:border-muted hover:text-fg active:opacity-70"
+            onClick={openAdd}
+          >
+            + Karte
+          </button>
+        </Show>
         <button
           class={`cursor-pointer rounded-lg border px-3 py-1 text-xs transition active:opacity-70 ${view() === "dash" ? "border-accent text-accent" : "border-line text-muted hover:border-muted hover:text-fg"}`}
           onClick={() => setView("dash")}
@@ -307,17 +331,23 @@ function App() {
         <div class="mt-6 grid grid-cols-1 gap-3.5 sm:grid-cols-2 lg:grid-cols-3">
           <For each={wids()}>
             {(w) => (
-              <div class="flex flex-col gap-2 rounded-xl border border-line bg-card p-4">
+              <div
+                class={`flex flex-col gap-2 rounded-xl border bg-card p-4 ${
+                  edit() ? "border-dashed border-muted" : "border-line"
+                }`}
+              >
                 <div class="flex items-center gap-2 font-semibold">
                   <span class={`size-2.5 shrink-0 rounded-full ${actionDot(w.statusState)}`} />
                   <span>{w.title}</span>
-                  <button
-                    class="ml-auto cursor-pointer text-[10px] text-muted transition hover:text-down"
-                    onClick={() => removeWidget(w.id)}
-                    title="Karte entfernen"
-                  >
-                    ✕
-                  </button>
+                  <Show when={edit()}>
+                    <button
+                      class="ml-auto cursor-pointer text-[10px] text-muted transition hover:text-down"
+                      onClick={() => removeWidget(w.id)}
+                      title="Karte entfernen"
+                    >
+                      ✕
+                    </button>
+                  </Show>
                 </div>
                 <div class="min-h-4 text-xs text-muted">
                   {w.statusOutput.split("\n")[0] || w.statusState}
