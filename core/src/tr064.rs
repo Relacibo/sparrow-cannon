@@ -31,7 +31,8 @@ fn tag_value(xml: &str, tag: &str) -> Option<String> {
 
 fn agent() -> ureq::Agent {
     ureq::AgentBuilder::new()
-        .timeout(Duration::from_secs(8))
+        .timeout_connect(Duration::from_secs(5))
+        .timeout(Duration::from_secs(10))
         .build()
 }
 

@@ -18,13 +18,16 @@ function App() {
   const [busy, setBusy] = createSignal("");
   const [error, setError] = createSignal("");
   const [lastCheck, setLastCheck] = createSignal("");
-  const [polling, setPolling] = createSignal(false);
+  const [slow, setSlow] = createSignal(false);
   const [user, setUser] = createSignal("");
   const [pw, setPw] = createSignal("");
   const [saving, setSaving] = createSignal(false);
 
+  let slowTimer: number | undefined;
+
   const refresh = async () => {
-    setPolling(true);
+    setSlow(false);
+    slowTimer = window.setTimeout(() => setSlow(true), 300);
     try {
       setRows(await invoke<Row[]>("get_status"));
       setError("");
@@ -32,8 +35,14 @@ function App() {
     } catch (e) {
       setError(String(e));
     } finally {
-      setPolling(false);
+      window.clearTimeout(slowTimer);
+      setSlow(false);
     }
+  };
+
+  const boxUnreachable = () => {
+    const hay = [error(), ...rows().map((r) => r.hostname ?? "")].join(" ");
+    return /timed out|timeout|network error/i.test(hay);
   };
 
   const wake = async (id: string) => {
@@ -71,9 +80,14 @@ function App() {
       /* ohne config bleibt das Feld leer */
     }
     refresh();
-    timer = setInterval(refresh, 10_000);
+    timer = setInterval(() => {
+      if (!slow()) refresh();
+    }, 10_000);
   });
-  onCleanup(() => clearInterval(timer));
+  onCleanup(() => {
+    clearInterval(timer);
+    window.clearTimeout(slowTimer);
+  });
 
   const needsSetup = () =>
     (error().includes("Passwort") || !rows().length) && !!error();
@@ -82,7 +96,10 @@ function App() {
     <div class="mx-auto max-w-[900px] p-5 pb-[max(1.25rem,env(safe-area-inset-bottom))]">
       <h1 class="mb-4 flex items-center gap-2 text-lg font-semibold text-muted">
         sparrow-cannon
-        <Show when={polling()}>
+        <Show
+          when={slow()}
+          fallback={<span class="hidden" aria-hidden="true" />}
+        >
           <span
             class="inline-block size-3 animate-spin rounded-full border-2 border-line border-t-accent"
             role="status"
@@ -133,7 +150,9 @@ function App() {
                   {r.ip ?? r.state}
                 </span>
               </div>
-              <div class="min-h-4 text-xs text-muted">{r.hostname ?? r.note}</div>
+              <div class="min-h-4 text-xs text-muted">
+                {[r.hostname, r.ip].filter(Boolean).join(" · ") || r.note}
+              </div>
               <button
                 disabled={busy() === r.id}
                 onClick={() => wake(r.id)}
@@ -144,10 +163,18 @@ function App() {
             </div>
           )}
         </For>
+        <Show when={!rows().length && !error()}>
+          <div class="rounded-xl border border-line bg-card p-4 text-sm text-muted">
+            prüfe Status…
+          </div>
+        </Show>
       </div>
 
       <p class="mt-4 flex items-center gap-2 text-xs text-muted">
         aktualisiert: {lastCheck() || "…"} (10s)
+        <Show when={boxUnreachable()}>
+          <span class="text-err">· Box nicht erreichbar (Timeout?)</span>
+        </Show>
       </p>
     </div>
   );
