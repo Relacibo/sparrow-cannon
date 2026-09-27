@@ -194,6 +194,8 @@ pub struct WidgetState {
     pub disabled: bool,
     pub status_paused: bool,
     pub pausable: bool,
+    /// Vollständige Definition fürs Bearbeiten.
+    pub def: Widget,
     /// Status-Teil: OK | FAIL | ERR | IDLE
     pub status_state: String,
     pub status_output: String,
@@ -389,6 +391,7 @@ pub fn widget_states(widgets: &[Widget], ctx: &Ctx) -> Vec<WidgetState> {
                 disabled: w.disabled,
                 status_paused: w.status_paused,
                 pausable: w.pausable,
+                def: w.clone(),
                 title: if w.title.is_empty() {
                     w.id.clone()
                 } else {

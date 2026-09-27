@@ -12,12 +12,26 @@ type Row = {
 };
 
 type ActionBtn = { label: string; when: string; index: number };
+type Op = { kind: string; params: Record<string, string> };
+type CondAction = { label: string; when: string; op: Op };
+type WidgetDef = {
+  id: string;
+  title: string;
+  disabled: boolean;
+  status_paused: boolean;
+  pausable: boolean;
+  action: Op | null;
+  actions: CondAction[];
+  status: Op | null;
+  trigger: Trigger;
+};
 type WidgetRow = {
   id: string;
   title: string;
   disabled: boolean;
   statusPaused: boolean;
   pausable: boolean;
+  def: WidgetDef;
   statusState: string;
   statusOutput: string;
   buttons: ActionBtn[];
@@ -74,6 +88,7 @@ function Icon(props: { name: string; class?: string }) {
     ),
     play: <polygon points="5 3 19 12 5 21 5 3" />,
     check: <polyline points="20 6 9 17 4 12" />,
+    edit: <path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z" />,
     plus: (
       <>
         <line x1="12" y1="5" x2="12" y2="19" />
@@ -125,6 +140,7 @@ function App() {
   const [addInterval, setAddInterval] = createSignal("60");
   const [addWhen, setAddWhen] = createSignal("always");
   const [addPausable, setAddPausable] = createSignal(true);
+  const [editingDef, setEditingDef] = createSignal<WidgetDef | null>(null);
   const [addStart, setAddStart] = createSignal(false);
   const [saving, setSaving] = createSignal(false);
 
@@ -186,9 +202,40 @@ function App() {
     } catch (e) {
       setError(String(e));
     }
+    setEditingDef(null);
     setAddTitle("");
     setAddKind("");
     setAddParams({});
+    setAddWhen("always");
+    setAddPausable(true);
+    setShowAdd(true);
+  };
+
+  const openEdit = async (def: WidgetDef) => {
+    try {
+      setMethods(await invoke<MethodDef[]>("get_methods"));
+    } catch (e) {
+      setError(String(e));
+    }
+    setEditingDef(def);
+    setAddTitle(def.title);
+    setAddPausable(def.pausable);
+    setAddTrigger(def.trigger.kind === "schedule" ? "schedule" : "manual");
+    setAddInterval(String(def.trigger.interval_secs || 60));
+    if (def.status) {
+      setAddRole("status");
+      setAddKind(def.status.kind);
+      setAddParams({ ...def.status.params });
+      setAddStart(!def.status_paused);
+    } else if (def.actions.length) {
+      const first = def.actions[0];
+      setAddRole("action");
+      setAddKind(first.op.kind);
+      setAddParams({ ...first.op.params });
+      setAddWhen(first.when);
+      setAddTitle(def.title || first.label);
+      setAddStart(true);
+    }
     setShowAdd(true);
   };
 
@@ -434,11 +481,18 @@ function App() {
                       </Show>
                       <Show when={edit()}>
                         <button
-                          class="cursor-pointer text-[10px] text-muted transition hover:text-down"
+                          class="cursor-pointer text-muted transition hover:text-fg"
+                          title="Karte bearbeiten"
+                          onClick={() => openEdit(w.def)}
+                        >
+                          <Icon name="edit" class="size-3" />
+                        </button>
+                        <button
+                          class="cursor-pointer text-muted transition hover:text-down"
                           onClick={() => removeWidget(w.id)}
                           title="Karte entfernen"
                         >
-                          ✕
+                          <Icon name="x" class="size-3" />
                         </button>
                       </Show>
                     </span>
@@ -736,7 +790,9 @@ function App() {
         >
           <div class="w-full max-w-sm rounded-t-2xl border border-line bg-bg p-5 sm:rounded-2xl">
             <div class="mb-3 flex items-center justify-between">
-              <h2 class="font-semibold">Neue Karte</h2>
+              <h2 class="font-semibold">
+                {editingDef() ? "Karte bearbeiten" : "Neue Karte"}
+              </h2>
               <button
                 class="cursor-pointer text-xs text-muted transition hover:text-fg"
                 onClick={() => setShowAdd(false)}
@@ -758,7 +814,8 @@ function App() {
               <label class="block">
                 <span class="text-xs text-muted">Rolle</span>
                 <select
-                  class="mt-1 w-full rounded-lg border border-line bg-card px-3 py-3 text-sm text-fg"
+                  disabled={!!editingDef()}
+                  class="mt-1 w-full rounded-lg border border-line bg-card px-3 py-3 text-sm text-fg disabled:opacity-50"
                   value={addRole()}
                   onChange={(e) => {
                     setAddRole(e.currentTarget.value as "action" | "status");

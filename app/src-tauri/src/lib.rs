@@ -395,6 +395,18 @@ fn set_status_paused(id: String, paused: bool, app: tauri::AppHandle) -> Result<
     conf.save_to(&path).map_err(|e| e.to_string())
 }
 
+/// Bestehendes Widget überschreiben (bearbeiten).
+#[tauri::command]
+fn update_widget(widget: Widget, app: tauri::AppHandle) -> Result<(), String> {
+    let path = config_path(&app);
+    let mut conf = ConfigFile::load_from(path.clone()).unwrap_or_else(|_| ConfigFile::builtin());
+    let Some(i) = conf.widgets.iter().position(|w| w.id == widget.id) else {
+        return Err(format!("widget '{}' fehlt", widget.id));
+    };
+    conf.widgets[i] = widget;
+    conf.save_to(&path).map_err(|e| e.to_string())
+}
+
 /// Widget aktivieren/deaktivieren.
 #[tauri::command]
 fn set_widget_enabled(id: String, enabled: bool, app: tauri::AppHandle) -> Result<(), String> {
@@ -641,6 +653,7 @@ pub fn run() {
             get_methods,
             js_log,
             add_widget,
+            update_widget,
             remove_widget,
             get_ssh_connections,
             get_box_connections,
