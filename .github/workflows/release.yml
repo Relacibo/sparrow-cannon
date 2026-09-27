@@ -26,10 +26,16 @@ jobs:
         run: |
           "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --install "ndk;26.3.11579264" >/dev/null
 
-      - name: Install tauri-cli (npm + cargo-subcommand shim)
-        run: |
-          npm install -g @tauri-apps/cli@^2
-          ln -sf "$(npm prefix -g)/bin/tauri" /usr/local/bin/cargo-tauri
+      - name: Cache tauri-cli
+        id: tauricli
+        uses: actions/cache@v4
+        with:
+          path: ~/.cargo/bin/cargo-tauri
+          key: cargo-tauri-2
+
+      - name: Install tauri-cli
+        if: steps.tauricli.outputs.cache-hit != 'true'
+        run: cargo install tauri-cli --version ^2 --locked
 
       - name: Cache cargo
         uses: actions/cache@v4
