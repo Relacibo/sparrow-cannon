@@ -32,8 +32,11 @@ pub struct Connections {
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct SshConn {
     /// Desktop: Ziel-String für das System-ssh (dest oder ssh-config-Alias).
-    /// Android (Phase 3): zusätzlich keyref für russh.
+    /// Android: "host" oder "user@host:port" für russh.
     pub dest: String,
+    /// Benutzer für russh (Android). Desktop: leer lassen — dest/ssh-config regelt das.
+    #[serde(default)]
+    pub user: String,
     #[serde(default)]
     pub note: String,
 }

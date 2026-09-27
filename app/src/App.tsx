@@ -178,8 +178,9 @@ function App() {
     const f = e.currentTarget as HTMLFormElement;
     const id = (f.elements.namedItem("id") as HTMLInputElement).value;
     const dest = (f.elements.namedItem("dest") as HTMLInputElement).value;
+    const user = (f.elements.namedItem("user") as HTMLInputElement).value;
     const note = (f.elements.namedItem("note") as HTMLInputElement).value;
-    invoke("upsert_ssh_conn", { id, dest, note }).then(() => {
+    invoke("upsert_ssh_conn", { id, dest, user, note }).then(() => {
       f.reset();
       refresh();
     });
@@ -382,6 +383,18 @@ function App() {
                     {c.ok ? "verbunden" : c.detail}
                   </span>
                   <button
+                    class="cursor-pointer text-muted transition hover:text-fg"
+                    title="In-App-Key generieren (android)"
+                    onClick={() =>
+                      invoke<string>("generate_ssh_key", { id: c.id })
+                        .then((pub_line) => navigator.clipboard?.writeText(pub_line))
+                        .then(() => refresh())
+                        .catch((e) => setError(String(e)))
+                    }
+                  >
+                    🔑
+                  </button>
+                  <button
                     class="cursor-pointer text-muted transition hover:text-down"
                     onClick={() => invoke("remove_ssh_conn", { id: c.id }).then(refresh)}
                   >
@@ -406,7 +419,8 @@ function App() {
               onSubmit={upsertSsh}
             >
               <input name="id" required placeholder="id" class="w-24 rounded-lg border border-line bg-bg px-2 py-2 text-xs text-fg" />
-              <input name="dest" required placeholder="ziel (user@host / alias)" class="min-w-0 flex-1 rounded-lg border border-line bg-bg px-2 py-2 text-xs text-fg" />
+              <input name="dest" required placeholder="ziel (host oder user@host)" class="min-w-0 flex-1 rounded-lg border border-line bg-bg px-2 py-2 text-xs text-fg" />
+              <input name="user" placeholder="benutzer (android)" class="w-28 rounded-lg border border-line bg-bg px-2 py-2 text-xs text-fg" />
               <input name="note" placeholder="notiz" class="w-32 rounded-lg border border-line bg-bg px-2 py-2 text-xs text-fg" />
               <button class="cursor-pointer rounded-lg bg-accent px-4 py-2 text-xs font-semibold text-[#0d1117] hover:brightness-110">
                 speichern

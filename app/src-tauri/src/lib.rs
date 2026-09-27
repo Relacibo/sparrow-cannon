@@ -4,6 +4,8 @@ use sparrow_cannon_core::{pass, BoxProfile, Host};
 use serde::Serialize;
 use std::collections::BTreeMap;
 use std::path::PathBuf;
+use std::sync::Mutex as StdMutex;
+use std::time::{Duration, Instant};
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -32,6 +34,43 @@ fn config_path(app: &tauri::AppHandle) -> PathBuf {
         let _ = app;
         ConfigFile::default_path()
     }
+}
+
+/// Ergebnisse der Scheduler-Threads für [[widgets]] mit trigger=schedule.
+struct SchedResults(StdMutex<BTreeMap<String, (String, String)>>);
+
+fn spawn_scheduler(app: tauri::AppHandle) {
+    use tauri::Manager;
+    std::thread::spawn(move || {
+        let mut last: BTreeMap<String, Instant> = BTreeMap::new();
+        loop {
+            std::thread::sleep(Duration::from_secs(1));
+            let conf = load_conf(&app);
+            for w in &conf.widgets {
+                if w.trigger.kind != "schedule" || w.trigger.interval_secs == 0 {
+                    continue;
+                }
+                let Some(op) = &w.status else { continue };
+                let now = Instant::now();
+                let due = last
+                    .get(&w.id)
+                    .map(|t| now.duration_since(*t) >= Duration::from_secs(w.trigger.interval_secs))
+                    .unwrap_or(true);
+                if !due {
+                    continue;
+                }
+                last.insert(w.id.clone(), now);
+                let ctx = widgets::Ctx::from_config(&conf, secrets_dir(&app));
+                let res = widgets::eval_status(op, &ctx);
+                let state = app.state::<SchedResults>();
+                state
+                    .0
+                    .lock()
+                    .unwrap()
+                    .insert(w.id.clone(), res);
+            }
+        }
+    });
 }
 
 /// Verzeichnis für den Datei-Fallback der Passwörter (nur Android relevant —
@@ -187,19 +226,44 @@ fn get_pubkey() -> Result<String, String> {
 fn upsert_ssh_conn(
     id: String,
     dest: String,
+    user: String,
     note: String,
     app: tauri::AppHandle,
 ) -> Result<(), String> {
     let path = config_path(&app);
     let mut conf = ConfigFile::load_from(path.clone()).unwrap_or_else(|_| ConfigFile::builtin());
     conf.connections.ssh.insert(
-        id,
+        id.clone(),
         sparrow_cannon_core::config::SshConn {
             dest: dest.trim_end_matches('/').to_string(),
+            user,
             note,
         },
     );
     conf.save_to(&path).map_err(|e| e.to_string())
+}
+
+/// Generiert ein In-App-Keypair (Android/Phase 3) und legt den privaten Teil
+/// unter secrets/ssh-<id>.key (600) ab. Rückgabe: pubkey zum Verteilen.
+#[tauri::command]
+fn generate_ssh_key(id: String, app: tauri::AppHandle) -> Result<String, String> {
+    use tauri::Manager;
+    let dir = app
+        .path()
+        .app_data_dir()
+        .expect("app_data_dir nicht auflösbar");
+    let (priv_pem, pub_line) = sparrow_cannon_core::keys::generate_ed25519()
+        .map_err(|e| format!("{e} (desktop: system-keys nutzen)"))?;
+    let path = dir.join("secrets").join(format!("ssh-{id}.key"));
+    std::fs::create_dir_all(path.parent().unwrap()).map_err(|e| e.to_string())?;
+    std::fs::write(&path, priv_pem).map_err(|e| e.to_string())?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let _ = std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600));
+    }
+    eprintln!("[cannon] ssh-key für {id} generiert: {}", path.display());
+    Ok(pub_line)
 }
 
 #[tauri::command]
@@ -252,9 +316,33 @@ fn js_log(msg: String) {
 
 #[tauri::command]
 fn get_widgets(app: tauri::AppHandle) -> Result<Vec<WidgetState>, String> {
+    use tauri::Manager;
     let conf = load_conf(&app);
     let ctx = widgets::Ctx::from_config(&conf, secrets_dir(&app));
-    Ok(widgets::widget_states(&conf.widgets, &ctx))
+    let sched = app.state::<SchedResults>();
+    let sched_map = sched.0.lock().unwrap().clone();
+    Ok(conf
+        .widgets
+        .iter()
+        .map(|w| {
+            // Schedule-Widgets: Ergebnis aus dem Scheduler-Thread nutzen
+            if w.trigger.kind == "schedule" {
+                if let Some((state, output)) = sched_map.get(&w.id) {
+                    let mut st = widgets::widget_states(std::slice::from_ref(w), &ctx)
+                        .into_iter()
+                        .next()
+                        .unwrap();
+                    st.status_state = state.clone();
+                    st.status_output = output.clone();
+                    return st;
+                }
+            }
+            widgets::widget_states(std::slice::from_ref(w), &ctx)
+                .into_iter()
+                .next()
+                .unwrap()
+        })
+        .collect())
 }
 
 #[tauri::command]
@@ -446,6 +534,7 @@ pub fn run() {
             get_box_connections,
             get_pubkey,
             upsert_ssh_conn,
+            generate_ssh_key,
             remove_ssh_conn,
             upsert_box_conn,
             remove_box_conn

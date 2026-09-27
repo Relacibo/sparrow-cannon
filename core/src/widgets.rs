@@ -30,10 +30,18 @@ pub enum FieldKind {
 
 /// Ausführungskontext: aufgelöste Boxen (inkl. Passwort) für fritzbox-Methoden
 /// und die SSH-Verbindungen (Desktop: dest-String; Android später: russh+keyref).
+/// Aufgelöstes SSH-Ziel einer Verbindung.
+#[derive(Debug, Clone)]
+pub struct SshTarget {
+    pub dest: String,
+    pub user: String,
+    pub keyfile: Option<std::path::PathBuf>,
+}
+
 #[derive(Debug, Clone, Default)]
 pub struct Ctx {
     pub boxes: BTreeMap<String, BoxProfile>,
-    pub ssh: BTreeMap<String, String>,
+    pub ssh: BTreeMap<String, SshTarget>,
     pub secrets_dir: Option<std::path::PathBuf>,
 }
 
@@ -56,7 +64,18 @@ impl Ctx {
         }
         let mut ssh_conns = BTreeMap::new();
         for (id, c) in &conf.connections.ssh {
-            ssh_conns.insert(id.clone(), c.dest.clone());
+            let keyfile = secrets_dir
+                .as_deref()
+                .map(|d| d.join("ssh").join(format!("{id}.key")))
+                .filter(|p| p.exists());
+            ssh_conns.insert(
+                id.clone(),
+                SshTarget {
+                    dest: c.dest.clone(),
+                    user: c.user.clone(),
+                    keyfile,
+                },
+            );
         }
         Ctx {
             boxes,
@@ -66,10 +85,14 @@ impl Ctx {
     }
 
     /// SSH-Ziel: connection-ID auflösen, sonst rohen host-Parameter nutzen.
-    fn ssh_dest(&self, p: &Params) -> anyhow::Result<String> {
+    fn ssh_target(&self, p: &Params) -> anyhow::Result<SshTarget> {
         let raw = p.get("host");
         if !raw.is_empty() {
-            return Ok(raw.to_string());
+            return Ok(SshTarget {
+                dest: raw.to_string(),
+                user: String::new(),
+                keyfile: None,
+            });
         }
         let conn = p.get("connection");
         self.ssh
@@ -201,8 +224,22 @@ pub fn field_defs() -> BTreeMap<&'static str, Vec<FieldDef>> {
     m
 }
 
-fn ssh(dest: &str, cmd: &str) -> anyhow::Result<String> {
-    crate::ssh::exec(dest, cmd)
+fn ssh(t: &SshTarget, cmd: &str) -> anyhow::Result<String> {
+    #[cfg(target_os = "android")]
+    {
+        match &t.keyfile {
+            Some(k) => {
+                let key = std::fs::read_to_string(k)
+                    .map_err(|e| anyhow::anyhow!("key {}: {e}", k.display()))?;
+                return crate::ssh::exec_with_key(&t.dest, &t.user, &key, cmd);
+            }
+            None => anyhow::bail!("verbindung '{}' hat keinen in-app-key", t.dest),
+        }
+    }
+    #[cfg(not(target_os = "android"))]
+    {
+        crate::ssh::exec(&t.dest, cmd)
+    }
 }
 
 fn ping(host: &str) -> anyhow::Result<String> {
@@ -222,8 +259,8 @@ fn ping(host: &str) -> anyhow::Result<String> {
 pub fn execute(op: &Op, ctx: &Ctx) -> anyhow::Result<String> {
     match op.kind.as_str() {
         "ssh.run" => {
-            let dest = ctx.ssh_dest(&op.params)?;
-            ssh(&dest, op.params.get("command"))
+            let t = ctx.ssh_target(&op.params)?;
+            ssh(&t, op.params.get("command"))
         }
         "ping.check" => ping(op.params.get("host")),
         "fritzbox.wake" => {
@@ -244,17 +281,22 @@ pub fn execute(op: &Op, ctx: &Ctx) -> anyhow::Result<String> {
     }
 }
 
+/// Public-Wrapper für Scheduler/Threads.
+pub fn eval_status(op: &Op, ctx: &Ctx) -> (String, String) {
+    eval(op, ctx)
+}
+
 /// Status einer Op als Kartenzustand.
 /// OK = Zustand erfüllt, FAIL = Zustand nicht erfüllt (z.B. aus),
 /// ERR = Check selbst fehlgeschlagen (netz/ssh).
 fn eval(op: &Op, ctx: &Ctx) -> (String, String) {
     match op.kind.as_str() {
         "ssh.run" => {
-            let dest = match ctx.ssh_dest(&op.params) {
-                Ok(d) => d,
+            let t = match ctx.ssh_target(&op.params) {
+                Ok(t) => t,
                 Err(e) => return ("ERR".into(), e.to_string()),
             };
-            match ssh(&dest, op.params.get("command")) {
+            match ssh(&t, op.params.get("command")) {
                 Err(e) => ("ERR".into(), e.to_string()),
                 Ok(out) => {
                     let want = op.params.get("ok_contains");
