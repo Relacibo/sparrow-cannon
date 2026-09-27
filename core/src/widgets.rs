@@ -128,6 +128,9 @@ pub struct Widget {
     pub id: String,
     #[serde(default)]
     pub title: String,
+    /// Deaktivierte Widgets werden nicht mehr geprüft/gefeuert.
+    #[serde(default)]
+    pub disabled: bool,
     #[serde(default)]
     pub status: Option<Op>,
     /// Buttons mit Bedingung: when = always | ok | fail
@@ -182,6 +185,7 @@ pub struct ActionBtn {
 pub struct WidgetState {
     pub id: String,
     pub title: String,
+    pub disabled: bool,
     /// Status-Teil: OK | FAIL | ERR | IDLE
     pub status_state: String,
     pub status_output: String,
@@ -368,6 +372,7 @@ pub fn widget_states(widgets: &[Widget], ctx: &Ctx) -> Vec<WidgetState> {
 
             WidgetState {
                 id: w.id.clone(),
+                disabled: w.disabled,
                 title: if w.title.is_empty() {
                     w.id.clone()
                 } else {

@@ -45,7 +45,6 @@ fn spawn_scheduler(app: tauri::AppHandle) {
     use tauri::Manager;
     std::thread::spawn(move || {
         let mut last: BTreeMap<String, Instant> = BTreeMap::new();
-        let mut last_conn: Option<Instant> = None;
         loop {
             std::thread::sleep(Duration::from_secs(1));
             let conf = load_conf(&app);
@@ -53,6 +52,9 @@ fn spawn_scheduler(app: tauri::AppHandle) {
 
             // widget-statusse
             for w in &conf.widgets {
+                if w.disabled {
+                    continue;
+                }
                 let Some(op) = &w.status else { continue };
                 let interval = if w.trigger.kind == "schedule" && w.trigger.interval_secs > 0 {
                     w.trigger.interval_secs
@@ -80,27 +82,7 @@ fn spawn_scheduler(app: tauri::AppHandle) {
                 });
             }
 
-            // ssh-verbindungstests, langsam im hintergrund
-            let test_due = last_conn
-                .map(|t| now2() - t >= Duration::from_secs(60))
-                .unwrap_or(true);
-            if test_due {
-                last_conn = Some(Instant::now());
-                for (id, c) in &conf.connections.ssh {
-                    let app2 = app.clone();
-                    let id = id.clone();
-                    let dest = c.dest.clone();
-                    std::thread::spawn(move || {
-                        let res = match sparrow_cannon_core::ssh::exec(&dest, "echo ok") {
-                            Ok(_) => (true, "verbunden".into()),
-                            Err(e) => (false, e.to_string()),
-                        };
-                        if let Some(st) = app2.try_state::<ConnTests>() {
-                            st.0.lock().unwrap().insert(id, res);
-                        }
-                    });
-                }
-            }
+
         }
     });
 }
@@ -380,6 +362,40 @@ fn js_log(msg: String) {
     eprintln!("[cannon-js] {msg}");
 }
 
+/// SSH-Verbindungen on-demand testen (löst Hintergrund-Threads aus).
+#[tauri::command]
+fn test_ssh_connections(app: tauri::AppHandle) -> Result<(), String> {
+    use tauri::Manager;
+    let conf = load_conf(&app);
+    for (id, c) in &conf.connections.ssh {
+        let app2 = app.clone();
+        let id = id.clone();
+        let dest = c.dest.clone();
+        std::thread::spawn(move || {
+            let res = match sparrow_cannon_core::ssh::exec(&dest, "echo ok") {
+                Ok(_) => (true, "verbunden".into()),
+                Err(e) => (false, e.to_string()),
+            };
+            if let Some(st) = app2.try_state::<ConnTests>() {
+                st.0.lock().unwrap().insert(id, res);
+            }
+        });
+    }
+    Ok(())
+}
+
+/// Widget aktivieren/deaktivieren.
+#[tauri::command]
+fn set_widget_enabled(id: String, enabled: bool, app: tauri::AppHandle) -> Result<(), String> {
+    use tauri::Manager;
+    let path = config_path(&app);
+    let mut conf = ConfigFile::load_from(path.clone()).unwrap_or_else(|_| ConfigFile::builtin());
+    if let Some(w) = conf.widgets.iter_mut().find(|w| w.id == id) {
+        w.disabled = !enabled;
+    }
+    conf.save_to(&path).map_err(|e| e.to_string())
+}
+
 #[tauri::command]
 fn get_widgets(app: tauri::AppHandle) -> Result<Vec<WidgetState>, String> {
     use tauri::Manager;
@@ -592,6 +608,8 @@ pub fn run() {
             set_box_config,
             get_box_info,
             get_widgets,
+            test_ssh_connections,
+            set_widget_enabled,
             fire_widget,
             get_methods,
             js_log,

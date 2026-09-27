@@ -14,6 +14,7 @@ type ActionBtn = { label: string; when: string; index: number };
 type WidgetRow = {
   id: string;
   title: string;
+  disabled: boolean;
   statusState: string;
   statusOutput: string;
   buttons: ActionBtn[];
@@ -239,7 +240,11 @@ function App() {
                 ? "border-accent text-accent"
                 : "border-line text-muted hover:border-muted hover:text-fg"
             }`}
-            onClick={() => setView("conns")}
+            onClick={() => {
+              setView("conns");
+              invoke("test_ssh_connections").catch(() => {});
+              refresh();
+            }}
           >
             Verbindungen
           </button>
@@ -328,44 +333,71 @@ function App() {
               {(w) => (
                 <div
                   class={`flex flex-col gap-2 rounded-xl border bg-card p-4 ${
-                    edit() ? "border-dashed border-muted" : "border-line"
+                    w.disabled
+                      ? "border-line opacity-50"
+                      : edit()
+                        ? "border-dashed border-muted"
+                        : "border-line"
                   }`}
                 >
                   <div class="flex items-center gap-2 font-semibold">
-                    <span class={`size-2.5 shrink-0 rounded-full ${actionDot(w.statusState)}`} />
+                    <span
+                      class={`size-2.5 shrink-0 rounded-full ${
+                        w.disabled ? "bg-muted" : actionDot(w.statusState)
+                      }`}
+                    />
                     <span>{w.title}</span>
+                    <Show when={w.disabled}>
+                      <span class="text-[10px] font-normal text-muted">deaktiviert</span>
+                    </Show>
                     <Show when={edit()}>
-                      <button
-                        class="ml-auto cursor-pointer text-[10px] text-muted transition hover:text-down"
-                        onClick={() => removeWidget(w.id)}
-                        title="Karte entfernen"
-                      >
-                        ✕
-                      </button>
+                      <span class="ml-auto flex items-center gap-2">
+                        <button
+                          class="cursor-pointer text-[10px] text-muted transition hover:text-fg"
+                          title={w.disabled ? "aktivieren" : "deaktivieren"}
+                          onClick={() =>
+                            invoke("set_widget_enabled", { id: w.id, enabled: w.disabled })
+                              .then(refresh)
+                          }
+                        >
+                          {w.disabled ? "aktivieren" : "deaktivieren"}
+                        </button>
+                        <button
+                          class="cursor-pointer text-[10px] text-muted transition hover:text-down"
+                          onClick={() => removeWidget(w.id)}
+                          title="Karte entfernen"
+                        >
+                          ✕
+                        </button>
+                      </span>
                     </Show>
                   </div>
                   <div class="min-h-4 text-xs text-muted">
-                    {w.statusOutput.split("\n")[0] || w.statusState}
+                    {w.disabled
+                      ? "status wird nicht abgefragt"
+                      : w.statusOutput.split("\n")[0] || w.statusState}
                   </div>
-                  <Show
-                    when={w.buttons.length}
-                    fallback={
-                      <div class="py-1 text-center text-xs text-muted">{w.statusState}</div>
-                    }
-                  >
-                    <div class="flex flex-col gap-2">
-                      <For each={w.buttons}>
-                        {(b) => (
-                          <button
-                            disabled={busy() === w.id}
-                            onClick={() => fireWidget(w.id, b.index)}
-                            class="cursor-pointer rounded-lg bg-accent py-3 text-sm font-semibold text-[#0d1117] transition hover:brightness-110 active:opacity-80 disabled:cursor-default disabled:opacity-60"
-                          >
-                            {busy() === w.id ? "… feuert" : b.label}
-                          </button>
-                        )}
-                      </For>
-                    </div>
+                  <Show when={!w.disabled}>
+                    <Show
+                      when={w.buttons.length}
+                      fallback={
+                        <div class="py-1 text-center text-xs text-muted">{w.statusState}</div>
+                      }
+                    >
+                      <div class="flex flex-col gap-2">
+                        <For each={w.buttons}>
+                          {(b) => (
+                            <button
+                              disabled={busy() === w.id}
+                              onClick={() => fireWidget(w.id, b.index)}
+                              class="cursor-pointer rounded-lg bg-accent py-3 text-sm font-semibold text-[#0d1117] transition hover:brightness-110 active:opacity-80 disabled:cursor-default disabled:opacity-60"
+                            >
+                              {busy() === w.id ? "… feuert" : b.label}
+                            </button>
+                          )}
+                        </For>
+                      </div>
+                    </Show>
                   </Show>
                 </div>
               )}
@@ -379,12 +411,24 @@ function App() {
           <section>
             <div class="mb-2 flex items-center justify-between">
               <h2 class="text-sm font-semibold text-muted">ssh-verbindungen</h2>
-              <button
-                class="cursor-pointer rounded-lg border border-line px-3 py-1 text-xs text-muted transition hover:border-muted hover:text-fg active:opacity-70"
-                onClick={() => setShowSsh(true)}
-              >
-                + neu
-              </button>
+              <div class="flex items-center gap-2">
+                <button
+                  class="cursor-pointer rounded-lg border border-line px-3 py-1 text-xs text-muted transition hover:border-muted hover:text-fg active:opacity-70"
+                  title="Verbindungen testen"
+                  onClick={() => {
+                    invoke("test_ssh_connections").catch(() => {});
+                    setTimeout(refresh, 3000);
+                  }}
+                >
+                  testen
+                </button>
+                <button
+                  class="cursor-pointer rounded-lg border border-line px-3 py-1 text-xs text-muted transition hover:border-muted hover:text-fg active:opacity-70"
+                  onClick={() => setShowSsh(true)}
+                >
+                  + neu
+                </button>
+              </div>
             </div>
             <div class="flex flex-col gap-2">
               <For each={sshConns()}>
