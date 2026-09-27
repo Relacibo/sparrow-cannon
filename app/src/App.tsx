@@ -283,7 +283,7 @@ function App() {
   const setupNeeded = () => error().includes("kein Box-Passwort");
 
   return (
-    <div class="mx-auto max-w-[900px] p-5 pb-[max(1.25rem,env(safe-area-inset-bottom))]">
+    <div class="mx-auto max-w-[900px] select-none p-5 pb-[max(1.25rem,env(safe-area-inset-bottom))]">
       <h1 class="mb-4 flex items-center gap-2 text-lg font-semibold text-muted">
         sparrow-cannon
         <span class="ml-auto flex items-center gap-2">
