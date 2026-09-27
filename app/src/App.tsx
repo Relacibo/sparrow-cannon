@@ -48,6 +48,7 @@ function App() {
   const [sshConns, setSshConns] = createSignal<SshConn[]>([]);
   const [boxConns, setBoxConns] = createSignal<BoxConn[]>([]);
   const [pubkey, setPubkey] = createSignal("");
+  const [platform, setPlatform] = createSignal("");
   const [busy, setBusy] = createSignal("");
   const [error, setError] = createSignal("");
   const [lastCheck, setLastCheck] = createSignal("");
@@ -79,6 +80,7 @@ function App() {
       setSshConns(await invoke<SshConn[]>("get_ssh_connections"));
       setBoxConns(await invoke<BoxConn[]>("get_box_connections"));
       invoke<string>("get_pubkey").then(setPubkey).catch(() => setPubkey(""));
+      invoke<string>("get_platform").then(setPlatform);
       setError("");
       setLastCheck(new Date().toLocaleTimeString());
     } catch (e) {
@@ -396,18 +398,31 @@ function App() {
                     <span class="ml-auto max-w-[35%] truncate text-xs text-muted" title={c.detail}>
                       {c.ok ? "verbunden" : c.detail}
                     </span>
-                    <button
-                      class="shrink-0 cursor-pointer text-muted transition hover:text-fg"
-                      title="In-App-Key generieren (android)"
-                      onClick={() =>
-                        invoke<string>("generate_ssh_key", { id: c.id })
-                          .then((pub_line) => navigator.clipboard?.writeText(pub_line))
-                          .then(() => refresh())
-                          .catch((e) => setError(String(e)))
-                      }
-                    >
-                      🔑
-                    </button>
+                    <Show when={platform() === "android"}>
+                      <button
+                        class="shrink-0 cursor-pointer text-muted transition hover:text-fg"
+                        title="Pubkey kopieren"
+                        onClick={() =>
+                          invoke<string>("get_conn_pubkey", { id: c.id })
+                            .then((pub_line) => navigator.clipboard?.writeText(pub_line))
+                            .catch((e) => setError(String(e)))
+                        }
+                      >
+                        📋
+                      </button>
+                      <button
+                        class="shrink-0 cursor-pointer text-muted transition hover:text-fg"
+                        title="Neuen In-App-Key generieren (überschreibt!)"
+                        onClick={() =>
+                          invoke<string>("generate_ssh_key", { id: c.id })
+                            .then((pub_line) => navigator.clipboard?.writeText(pub_line))
+                            .then(() => refresh())
+                            .catch((e) => setError(String(e)))
+                        }
+                      >
+                        🔑
+                      </button>
+                    </Show>
                     <button
                       class="shrink-0 cursor-pointer text-muted transition hover:text-down"
                       onClick={() => invoke("remove_ssh_conn", { id: c.id }).then(refresh)}
@@ -462,7 +477,7 @@ function App() {
             </div>
           </section>
 
-          <Show when={pubkey()}>
+          <Show when={platform() !== "android" && pubkey()}>
             <div class="flex items-center gap-2 rounded-xl border border-dashed border-line bg-card p-3 text-xs text-muted">
               <span class="shrink-0">dein pubkey für neue zielsysteme:</span>
               <button
@@ -473,9 +488,11 @@ function App() {
               </button>
             </div>
           </Show>
-          <p class="text-[10px] text-muted opacity-70">
-            android (phase 3): ssh über russh mit in-app-key statt system-ssh
-          </p>
+          <Show when={platform() === "android"}>
+            <p class="text-[10px] text-muted opacity-70">
+              🔑 = key generieren · 📋 = pubkey kopieren (in authorized_keys des zielsystems)
+            </p>
+          </Show>
         </div>
       </Show>
 

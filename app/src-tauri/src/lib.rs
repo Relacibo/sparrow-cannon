@@ -222,6 +222,33 @@ fn get_pubkey() -> Result<String, String> {
         .map_err(|_| format!("{} nicht lesbar — erst ssh-keygen?", pub_path.display()))
 }
 
+/// Plattform fürs UI (plattformspezifische Optionen ein/aus).
+#[tauri::command]
+fn get_platform() -> String {
+    #[cfg(target_os = "android")]
+    {
+        "android".into()
+    }
+    #[cfg(not(target_os = "android"))]
+    {
+        "desktop".into()
+    }
+}
+
+/// Pubkey einer gespeicherten SSH-Verbindung (android).
+#[tauri::command]
+fn get_conn_pubkey(id: String, app: tauri::AppHandle) -> Result<String, String> {
+    use tauri::Manager;
+    let dir = app
+        .path()
+        .app_data_dir()
+        .expect("app_data_dir nicht auflösbar");
+    let key_path = dir.join("secrets").join(format!("ssh-{id}.key"));
+    let pem = std::fs::read_to_string(&key_path)
+        .map_err(|_| format!("kein key für '{id}' — erst 🔑 generieren"))?;
+    sparrow_cannon_core::keys::public_line(&pem).map_err(|e| e.to_string())
+}
+
 #[tauri::command]
 fn upsert_ssh_conn(
     id: String,
@@ -539,6 +566,8 @@ pub fn run() {
             get_ssh_connections,
             get_box_connections,
             get_pubkey,
+            get_platform,
+            get_conn_pubkey,
             upsert_ssh_conn,
             generate_ssh_key,
             remove_ssh_conn,

@@ -15,6 +15,20 @@ pub fn generate_ed25519() -> anyhow::Result<(String, String)> {
     Ok((priv_s, pub_line))
 }
 
+/// Pubkey-Zeile aus einem gespeicherten privaten PKCS8-Key ableiten.
+#[cfg(target_os = "android")]
+pub fn public_line(priv_pem: &str) -> anyhow::Result<String> {
+    let kp = russh_keys::decode_secret_key(priv_pem, None)
+        .map_err(|e| anyhow::anyhow!("key decode: {e}"))?;
+    use russh_keys::PublicKeyBase64;
+    Ok(format!("{} {}", kp.name(), kp.public_key_base64()))
+}
+
+#[cfg(not(target_os = "android"))]
+pub fn public_line(_priv_pem: &str) -> anyhow::Result<String> {
+    anyhow::bail!("public_line nur auf android")
+}
+
 #[cfg(not(target_os = "android"))]
 pub fn generate_ed25519() -> anyhow::Result<(String, String)> {
     anyhow::bail!("key-generation nur auf android (desktop: ssh-keygen)")
