@@ -120,7 +120,7 @@ function App() {
           />
         </Show>
         <button
-          class="ml-auto rounded-lg border border-line px-3 py-1 text-xs text-muted active:opacity-70"
+          class="ml-auto cursor-pointer rounded-lg border border-line px-3 py-1 text-xs text-muted transition hover:border-muted hover:text-fg active:opacity-70"
           onClick={openSetup}
         >
           Box einrichten
@@ -154,7 +154,7 @@ function App() {
               <button
                 disabled={busy() === r.id}
                 onClick={() => wake(r.id)}
-                class="rounded-lg bg-accent py-3 text-sm font-semibold text-[#0d1117] active:opacity-70 disabled:opacity-50"
+                class="cursor-pointer rounded-lg bg-accent py-3 text-sm font-semibold text-[#0d1117] transition hover:brightness-110 active:opacity-80 disabled:cursor-not-allowed disabled:opacity-50"
               >
                 {busy() === r.id ? "wird geweckt…" : "Wake"}
               </button>
@@ -188,7 +188,7 @@ function App() {
               <h2 class="font-semibold">Box einrichten</h2>
               <Show when={hasSaved()}>
                 <button
-                  class="text-xs text-muted active:opacity-70"
+                  class="cursor-pointer text-xs text-muted transition hover:text-fg active:opacity-70"
                   onClick={() => setShowSetup(false)}
                 >
                   später
@@ -233,7 +233,7 @@ function App() {
                 />
               </label>
               <button
-                class="mt-1 rounded-lg bg-accent py-3 text-sm font-semibold text-[#0d1117] active:opacity-70 disabled:opacity-50"
+                class="mt-1 cursor-pointer rounded-lg bg-accent py-3 text-sm font-semibold text-[#0d1117] transition hover:brightness-110 active:opacity-80 disabled:cursor-not-allowed disabled:opacity-50"
                 disabled={saving() || !pw() || !boxUrl()}
                 onClick={saveBoxConfig}
               >
