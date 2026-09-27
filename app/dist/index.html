@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="de">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>cannon</title>
+    <style>
+      :root {
+        color-scheme: dark;
+        --bg: #11131a;
+        --card: #1a1d27;
+        --line: #2a2e3d;
+        --fg: #dfe3ee;
+        --muted: #8b91a5;
+        --up: #4ade80;
+        --down: #f87171;
+        --err: #fbbf24;
+        --accent: #7aa2f7;
+      }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0;
+        background: var(--bg);
+        color: var(--fg);
+        font-family: system-ui, sans-serif;
+      }
+      .wrap { max-width: 900px; margin: 0 auto; padding: 20px; }
+      h1 { font-size: 18px; font-weight: 600; color: var(--muted); margin: 0 0 16px; }
+      .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 14px; }
+      .card { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 14px; display: flex; flex-direction: column; gap: 8px; }
+      .head { display: flex; align-items: center; gap: 8px; font-weight: 600; }
+      .dot { width: 10px; height: 10px; border-radius: 50%; background: var(--err); flex: none; }
+      .card.up .dot { background: var(--up); }
+      .card.down .dot { background: var(--down); }
+      .card.err .dot { background: var(--err); }
+      .ip { margin-left: auto; color: var(--muted); font-family: monospace; font-size: 12px; }
+      .note { color: var(--muted); font-size: 12px; min-height: 16px; }
+      button {
+        background: var(--accent); color: #0d1117; border: 0; border-radius: 8px;
+        padding: 8px 0; font-weight: 600; cursor: pointer; font-size: 13px;
+      }
+      button:disabled { opacity: 0.5; cursor: wait; }
+      .err-msg { color: var(--err); font-size: 12px; font-family: monospace; word-break: break-all; }
+      .status-line { color: var(--muted); font-size: 12px; }
+    </style>
+    <script type="module" crossorigin src="/assets/index-CpvbRnfs.js"></script>
+  </head>
+  <body>
+    <div id="root"></div>
+  </body>
+</html>

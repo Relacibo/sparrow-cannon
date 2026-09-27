@@ -1,5 +1,6 @@
 pub mod config;
 pub mod digest;
+pub mod pass;
 pub mod tr064;
 
 use anyhow::Context;

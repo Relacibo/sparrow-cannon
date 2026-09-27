@@ -31,27 +31,13 @@ enum Cmd {
 
 /// Passwort-Auflösung: CANNON_PASS → secret-tool (keyring) → Prompt.
 fn resolve_pass() -> anyhow::Result<String> {
-    if let Ok(p) = std::env::var("CANNON_PASS") {
-        if !p.is_empty() {
-            return Ok(p);
-        }
-    }
-    if let Ok(out) = std::process::Command::new("secret-tool")
-        .args(["lookup", "service", "fritz-cannon", "username", "fritzbox"])
-        .output()
-    {
-        if out.status.success() {
-            let p = String::from_utf8_lossy(&out.stdout).trim().to_string();
-            if !p.is_empty() {
-                return Ok(p);
-            }
-        }
-    }
-    rpassword::prompt_password("Fritzbox-Passwort: ").context("passwort-eingabe")
+    fritz_cannon_core::pass::resolve_from_env_or_keyring().map_or_else(
+        || rpassword::prompt_password("Fritzbox-Passwort: ").context("passwort-eingabe"),
+        Ok,
+    )
 }
 
 fn select_box(
-    conf: &ConfigFile,
     profiles: &std::collections::BTreeMap<String, BoxProfile>,
     wanted: &Option<String>,
 ) -> anyhow::Result<BoxProfile> {
@@ -76,7 +62,7 @@ fn main() -> anyhow::Result<()> {
 
     match cli.cmd {
         Cmd::Wake { host } => {
-            let box_ = select_box(&conf, &profiles, &cli.r#box)?;
+            let box_ = select_box(&profiles, &cli.r#box)?;
             let hosts = conf.hosts();
             let h: &Host = hosts
                 .get(&host)
@@ -85,7 +71,7 @@ fn main() -> anyhow::Result<()> {
             println!("wake an {host} ({}) geschickt.", h.mac);
         }
         Cmd::Status { host } => {
-            let box_ = select_box(&conf, &profiles, &cli.r#box)?;
+            let box_ = select_box(&profiles, &cli.r#box)?;
             let mut hosts = conf.hosts();
             if let Some(h) = &host {
                 let one = hosts.remove(h).context(format!("host '{h}' fehlt"))?;
@@ -107,7 +93,7 @@ fn main() -> anyhow::Result<()> {
             }
         }
         Cmd::Doctor => {
-            let box_ = select_box(&conf, &profiles, &cli.r#box)?;
+            let box_ = select_box(&profiles, &cli.r#box)?;
             println!(
                 "box '{}' → {} (user {})",
                 box_.name, box_.base_url, box_.user
