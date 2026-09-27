@@ -58,7 +58,7 @@ jobs:
           export NDK_HOME="$NDK" ANDROID_NDK_HOME="$NDK"
           export CC_aarch64_linux_android="$NDK/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android24-clang"
           export AR_aarch64_linux_android="$NDK/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-ar"
-          tauri android build --apk --target aarch64
+          cargo tauri android build --apk --target aarch64
 
       - name: Sign APK
         working-directory: app/src-tauri/gen/android/app/build/outputs/apk/universal/release
