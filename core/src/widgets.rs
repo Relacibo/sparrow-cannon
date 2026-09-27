@@ -131,6 +131,9 @@ pub struct Widget {
     /// Deaktivierte Widgets werden nicht mehr geprüft/gefeuert.
     #[serde(default)]
     pub disabled: bool,
+    /// Periodische Status-Abfrage pausiert (Button auf der Karte).
+    #[serde(default)]
+    pub status_paused: bool,
     #[serde(default)]
     pub status: Option<Op>,
     /// Buttons mit Bedingung: when = always | ok | fail
@@ -186,6 +189,7 @@ pub struct WidgetState {
     pub id: String,
     pub title: String,
     pub disabled: bool,
+    pub status_paused: bool,
     /// Status-Teil: OK | FAIL | ERR | IDLE
     pub status_state: String,
     pub status_output: String,
@@ -373,6 +377,7 @@ pub fn widget_states(widgets: &[Widget], ctx: &Ctx) -> Vec<WidgetState> {
             WidgetState {
                 id: w.id.clone(),
                 disabled: w.disabled,
+                status_paused: w.status_paused,
                 title: if w.title.is_empty() {
                     w.id.clone()
                 } else {

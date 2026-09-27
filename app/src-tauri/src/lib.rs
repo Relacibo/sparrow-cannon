@@ -52,7 +52,7 @@ fn spawn_scheduler(app: tauri::AppHandle) {
 
             // widget-statusse
             for w in &conf.widgets {
-                if w.disabled {
+                if w.disabled || w.status_paused {
                     continue;
                 }
                 let Some(op) = &w.status else { continue };
@@ -133,7 +133,7 @@ fn migrate_legacy_box_txt(dir: &PathBuf, conf: &mut ConfigFile) {
             // Android-Fallback: Passwort in die neue secrets/<id>.txt übernehmen
             sparrow_cannon_core::pass::file_store(dir, &id, legacy_pass);
         }
-        eprintln!("[cannon] legacy box.txt übernommen");
+        tracing::info!("legacy box.txt übernommen");
     }
     let _ = std::fs::remove_file(&legacy);
 }
@@ -310,7 +310,7 @@ fn generate_ssh_key(id: String, app: tauri::AppHandle) -> Result<String, String>
         use std::os::unix::fs::PermissionsExt;
         let _ = std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600));
     }
-    eprintln!("[cannon] ssh-key für {id} generiert: {}", path.display());
+    tracing::info!("ssh-key für {id} generiert: {}", path.display());
     Ok(pub_line)
 }
 
@@ -359,7 +359,7 @@ fn remove_box_conn(id: String, app: tauri::AppHandle) -> Result<(), String> {
 /// JS-Fehler landen im journal (statt still im WebView-Console).
 #[tauri::command]
 fn js_log(msg: String) {
-    eprintln!("[cannon-js] {msg}");
+    tracing::warn!("[js] {msg}");
 }
 
 /// SSH-Verbindungen on-demand testen (löst Hintergrund-Threads aus).
@@ -382,6 +382,17 @@ fn test_ssh_connections(app: tauri::AppHandle) -> Result<(), String> {
         });
     }
     Ok(())
+}
+
+/// Periodische Status-Abfrage eines Widgets pausieren/starten.
+#[tauri::command]
+fn set_status_paused(id: String, paused: bool, app: tauri::AppHandle) -> Result<(), String> {
+    let path = config_path(&app);
+    let mut conf = ConfigFile::load_from(path.clone()).unwrap_or_else(|_| ConfigFile::builtin());
+    if let Some(w) = conf.widgets.iter_mut().find(|w| w.id == id) {
+        w.status_paused = paused;
+    }
+    conf.save_to(&path).map_err(|e| e.to_string())
 }
 
 /// Widget aktivieren/deaktivieren.
@@ -431,7 +442,16 @@ fn fire_widget(id: String, index: usize, app: tauri::AppHandle) -> Result<String
         .find(|w| w.id == id)
         .cloned()
         .ok_or(format!("widget '{id}' fehlt"))?;
-    widgets::fire(&w, index, &ctx).map_err(|e| e.to_string())
+    match widgets::fire(&w, index, &ctx) {
+        Ok(out) => {
+            tracing::info!("widget {id}[{index}] gefeuert");
+            Ok(out)
+        }
+        Err(e) => {
+            tracing::warn!("widget {id}[{index}] fehlgeschlagen: {e:#}");
+            Err(e.to_string())
+        }
+    }
 }
 
 /// Param-Schema der Registry für den "+"-Dialog.
@@ -546,7 +566,7 @@ fn set_box_config(
     conf.upsert_box(&box_id, &base_url, &user);
     conf.save_to(&path).map_err(|e| e.to_string())?;
     let stored = pass::store(&box_id, &p, secrets_dir(&app).as_deref());
-    eprintln!("[cannon] passwort gespeichert: {stored}");
+    tracing::info!("passwort gespeichert: {stored}");
     Ok(())
 }
 
@@ -560,7 +580,7 @@ fn get_status(app: tauri::AppHandle) -> Result<Vec<StatusRow>, String> {
         .filter(|(_, h)| !h.mac.is_empty())
         .map(|(id, h)| match sparrow_cannon_core::status(&box_, &h) {
             Ok(s) => {
-                eprintln!("[cannon] status {id}: ok in {:?}", t0.elapsed());
+                tracing::debug!("status {id}: ok in {:?}", t0.elapsed());
                 StatusRow {
                     id,
                     mac: h.mac,
@@ -571,7 +591,7 @@ fn get_status(app: tauri::AppHandle) -> Result<Vec<StatusRow>, String> {
                 }
             }
             Err(e) => {
-                eprintln!("[cannon] status {id}: ERR in {:?}: {e:#}", t0.elapsed());
+                tracing::warn!("status {id} fehlgeschlagen in {:?}: {e:#}", t0.elapsed());
                 StatusRow {
                     id,
                     mac: h.mac,
@@ -594,6 +614,12 @@ fn wake(host_id: String, app: tauri::AppHandle) -> Result<(), String> {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    use tracing_subscriber::EnvFilter;
+    tracing_subscriber::fmt()
+        .with_env_filter(
+            EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info")),
+        )
+        .init();
     tauri::Builder::default()
         .manage(SchedResults(StdMutex::new(BTreeMap::new())))
         .manage(ConnTests(StdMutex::new(BTreeMap::new())))
@@ -610,6 +636,7 @@ pub fn run() {
             get_widgets,
             test_ssh_connections,
             set_widget_enabled,
+            set_status_paused,
             fire_widget,
             get_methods,
             js_log,

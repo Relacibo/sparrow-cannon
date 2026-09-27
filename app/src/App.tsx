@@ -15,6 +15,7 @@ type WidgetRow = {
   id: string;
   title: string;
   disabled: boolean;
+  statusPaused: boolean;
   statusState: string;
   statusOutput: string;
   buttons: ActionBtn[];
@@ -71,6 +72,7 @@ function App() {
   const [addTrigger, setAddTrigger] = createSignal("manual");
   const [addInterval, setAddInterval] = createSignal("60");
   const [addWhen, setAddWhen] = createSignal("always");
+  const [addStart, setAddStart] = createSignal(false);
   const [saving, setSaving] = createSignal(false);
 
   const refresh = async () => {
@@ -156,6 +158,7 @@ function App() {
             ? [{ label: addTitle() || "Feuern", when: addWhen(), op }]
             : [],
         status: addRole() === "status" ? op : null,
+        status_paused: addRole() === "status" && !addStart(),
         trigger:
           addTrigger() === "schedule"
             ? { kind: "schedule", interval_secs: Number(addInterval()) || 60 }
@@ -375,7 +378,9 @@ function App() {
                   <div class="min-h-4 text-xs text-muted">
                     {w.disabled
                       ? "status wird nicht abgefragt"
-                      : w.statusOutput.split("\n")[0] || w.statusState}
+                      : w.statusPaused
+                        ? "status pausiert"
+                        : w.statusOutput.split("\n")[0] || w.statusState}
                   </div>
                   <Show when={!w.disabled}>
                     <Show
@@ -753,6 +758,19 @@ function App() {
                   </label>
                 )}
               </For>
+              <Show when={addRole() === "status"}>
+                <label class="block">
+                  <span class="text-xs text-muted">Status-Abfrage</span>
+                  <select
+                    class="mt-1 w-full rounded-lg border border-line bg-card px-3 py-3 text-sm text-fg"
+                    value={addStart() ? "start" : "paused"}
+                    onChange={(e) => setAddStart(e.currentTarget.value === "start")}
+                  >
+                    <option value="paused">pausiert (Standard)</option>
+                    <option value="start">sofort starten</option>
+                  </select>
+                </label>
+              </Show>
               <Show when={addRole() === "action"}>
                 <label class="block">
                   <span class="text-xs text-muted">Button zeigen</span>
