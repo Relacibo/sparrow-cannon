@@ -519,6 +519,12 @@ fn wake(host_id: String, app: tauri::AppHandle) -> Result<(), String> {
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
+        .manage(SchedResults(StdMutex::new(BTreeMap::new())))
+        .setup(|app| {
+            let handle = app.handle().clone();
+            spawn_scheduler(handle);
+            Ok(())
+        })
         .invoke_handler(tauri::generate_handler![
             get_status,
             wake,
