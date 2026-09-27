@@ -3,6 +3,7 @@ use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
 use crate::actions::ActionFile;
+use crate::widgets::Widget;
 use crate::{BoxProfile, Host};
 
 /// Config-Datei: `~/.config/sparrow-cannon/config.toml`.
@@ -15,6 +16,8 @@ pub struct ConfigFile {
     pub hosts: BTreeMap<String, HostFile>,
     #[serde(default)]
     pub actions: BTreeMap<String, ActionFile>,
+    #[serde(default)]
+    pub widgets: Vec<Widget>,
 }
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -97,6 +100,7 @@ impl ConfigFile {
             boxes,
             hosts,
             actions: BTreeMap::new(),
+            widgets: Vec::new(),
         }
     }
 

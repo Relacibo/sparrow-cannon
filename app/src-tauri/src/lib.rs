@@ -1,5 +1,5 @@
-use sparrow_cannon_core::actions::{self, ActionFile, ActionResult};
 use sparrow_cannon_core::config::ConfigFile;
+use sparrow_cannon_core::widgets::{self, Widget, WidgetState};
 use sparrow_cannon_core::{pass, BoxProfile, Host};
 use serde::Serialize;
 use std::collections::BTreeMap;
@@ -119,40 +119,81 @@ fn load_conf(app: &tauri::AppHandle) -> ConfigFile {
 }
 
 #[tauri::command]
-fn get_actions(app: tauri::AppHandle) -> Result<Vec<ActionResult>, String> {
+fn get_widgets(app: tauri::AppHandle) -> Result<Vec<WidgetState>, String> {
     let conf = load_conf(&app);
-    let hosts = conf.hosts();
-    let mut out = Vec::new();
-    for (id, a) in &conf.actions {
-        let dest = hosts
-            .get(&a.host)
-            .filter(|h| !h.ssh.is_empty())
-            .map(|h| h.ssh.clone());
-        let r = match &dest {
-            Some(d) => actions::check(d, id, a),
-            None => ActionResult {
-                id: id.clone(),
-                host: a.host.clone(),
-                state: "ERR".into(),
-                output: format!("host '{}' hat kein ssh-ziel", a.host),
-                has_run: !a.run.is_empty(),
-            },
-        };
-        out.push(r);
-    }
-    Ok(out)
+    let ctx = widgets::Ctx::from_config(&conf, secrets_dir(&app));
+    Ok(widgets::widget_states(&conf.widgets, &ctx))
 }
 
 #[tauri::command]
-fn run_action(id: String, app: tauri::AppHandle) -> Result<String, String> {
+fn fire_widget(id: String, app: tauri::AppHandle) -> Result<String, String> {
     let conf = load_conf(&app);
-    let a: ActionFile = conf
-        .actions
-        .get(&id)
+    let ctx = widgets::Ctx::from_config(&conf, secrets_dir(&app));
+    let w = conf
+        .widgets
+        .iter()
+        .find(|w| w.id == id)
         .cloned()
-        .ok_or(format!("action '{id}' fehlt"))?;
-    let dest = conf.ssh_dest(&a.host).map_err(|e| e.to_string())?;
-    actions::run(&dest, &a).map_err(|e| e.to_string())
+        .ok_or(format!("widget '{id}' fehlt"))?;
+    widgets::fire(&w, &ctx).map_err(|e| e.to_string())
+}
+
+/// Param-Schema der Registry für den "+"-Dialog.
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MethodDef {
+    pub kind: String,
+    pub fields: Vec<FieldDefUi>,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FieldDefUi {
+    pub key: String,
+    pub label: String,
+    pub kind: String,
+    pub required: bool,
+}
+
+#[tauri::command]
+fn get_methods() -> Vec<MethodDef> {
+    widgets::field_defs()
+        .into_iter()
+        .map(|(kind, fields)| MethodDef {
+            kind: kind.to_string(),
+            fields: fields
+                .into_iter()
+                .map(|f| FieldDefUi {
+                    key: f.key.to_string(),
+                    label: f.label.to_string(),
+                    kind: format!("{:?}", f.kind).to_lowercase(),
+                    required: f.required,
+                })
+                .collect(),
+        })
+        .collect()
+}
+
+#[tauri::command]
+fn add_widget(widget: Widget, app: tauri::AppHandle) -> Result<(), String> {
+    let path = config_path(&app);
+    let mut conf = ConfigFile::load_from(path.clone()).unwrap_or_else(|_| ConfigFile::builtin());
+    if conf.widgets.iter().any(|w| w.id == widget.id) {
+        return Err(format!("widget-id '{}' existiert schon", widget.id));
+    }
+    if widget.action.is_none() && widget.status.is_none() {
+        return Err("widget braucht action oder status".into());
+    }
+    conf.widgets.push(widget);
+    conf.save_to(&path).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn remove_widget(id: String, app: tauri::AppHandle) -> Result<(), String> {
+    let path = config_path(&app);
+    let mut conf = ConfigFile::load_from(path.clone()).unwrap_or_else(|_| ConfigFile::builtin());
+    conf.widgets.retain(|w| w.id != id);
+    conf.save_to(&path).map_err(|e| e.to_string())
 }
 
 /// Werte zum Vorausfüllen des Setup-Modals.
@@ -259,8 +300,11 @@ pub fn run() {
             wake,
             set_box_config,
             get_box_info,
-            get_actions,
-            run_action
+            get_widgets,
+            fire_widget,
+            get_methods,
+            add_widget,
+            remove_widget
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

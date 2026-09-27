@@ -3,6 +3,7 @@ pub mod config;
 pub mod digest;
 pub mod pass;
 pub mod tr064;
+pub mod widgets;
 
 use anyhow::Context;
 

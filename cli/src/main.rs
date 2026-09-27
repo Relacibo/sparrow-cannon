@@ -31,6 +31,10 @@ enum Cmd {
     Actions,
     /// Führt eine Action aus.
     Run { action: String },
+    /// Zeigt alle Widgets mit Live-Status.
+    Widgets,
+    /// Feuert die Action eines Widgets.
+    Fire { widget: String },
 }
 
 /// Passwort-Auflösung für die gewählte Box: CANNON_PASS → keyring(box-id) → Prompt.
@@ -122,6 +126,36 @@ fn main() -> anyhow::Result<()> {
                 .with_context(|| format!("action '{action}' fehlt in der config"))?;
             let dest = conf.ssh_dest(&a.host)?;
             let out = sparrow_cannon_core::actions::run(&dest, a)?;
+            if !out.is_empty() {
+                println!("{out}");
+            }
+        }
+        Cmd::Widgets => {
+            let ctx = sparrow_cannon_core::widgets::Ctx::from_config(&conf, None);
+            for w in &conf.widgets {
+                let st = sparrow_cannon_core::widgets::widget_states(std::slice::from_ref(w), &ctx)
+                    .into_iter()
+                    .next()
+                    .unwrap();
+                println!(
+                    "{:<20} status={:<5} {}",
+                    st.id,
+                    st.status_state,
+                    st.status_output.lines().next().unwrap_or("")
+                );
+            }
+            if conf.widgets.is_empty() {
+                println!("keine [[widgets]] in der config");
+            }
+        }
+        Cmd::Fire { widget } => {
+            let ctx = sparrow_cannon_core::widgets::Ctx::from_config(&conf, None);
+            let w = conf
+                .widgets
+                .iter()
+                .find(|w| w.id == widget)
+                .with_context(|| format!("widget '{widget}' fehlt in der config"))?;
+            let out = sparrow_cannon_core::widgets::fire(w, &ctx)?;
             if !out.is_empty() {
                 println!("{out}");
             }
