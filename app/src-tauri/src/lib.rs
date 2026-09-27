@@ -27,22 +27,39 @@ struct BoxConfig {
 struct AppState(Mutex<Option<BoxConfig>>);
 
 impl AppState {
-    /// Lädt gespeicherte Box-Konfiguration aus dem App-Datenverzeichnis
-    /// (3-Zeilen-Format: url \n user \n pass, chmod 600).
+    /// Lädt die Box-Konfiguration aus dem App-Datenverzeichnis.
+    /// Desktop: 2 Zeilen (url, user) — Passwort lebt im Keyring.
+    /// Android (kein Secret Service): 3 Zeilen (url, user, pass), chmod 600.
+    /// Legacy 3-Zeilen-Dateien mit Passwort migrieren automatisch in den Keyring.
     fn load(dir: PathBuf) -> Self {
         let file = dir.join("box.txt");
-        let cfg = std::fs::read_to_string(&file).ok().and_then(|raw| {
+        let mut cfg = std::fs::read_to_string(&file).ok().and_then(|raw| {
             let mut lines = raw.lines();
             let base_url = lines.next()?.trim().to_string();
             let user = lines.next()?.trim().to_string();
-            let pass = lines.next()?.trim().to_string();
-            (base_url.starts_with("http") && !user.is_empty() && !pass.is_empty())
-                .then_some(BoxConfig {
-                    base_url,
-                    user,
-                    pass,
-                })
+            let pass = lines.next().map(|l| l.trim().to_string()).unwrap_or_default();
+            (base_url.starts_with("http") && !user.is_empty()).then_some(BoxConfig {
+                base_url,
+                user,
+                pass,
+            })
         });
+
+        if let Some(c) = &cfg {
+            if !c.pass.is_empty() {
+                // Legacy: Passwort in der Datei → Keyring, Datei entschlacken
+                if sparrow_cannon_core::pass::store_to_keyring(&c.pass) {
+                    let _ = std::fs::write(
+                        &file,
+                        format!("{}\n{}\n", c.base_url, c.user),
+                    );
+                    eprintln!("[cannon] legacy-passwort in keyring migriert");
+                }
+            }
+        }
+        if let Some(c) = &mut cfg {
+            c.pass = String::new(); // Passwort kommt ausschließlich aus dem Keyring
+        }
         if cfg.is_some() {
             eprintln!("[cannon] box-config geladen aus {}", file.display());
         }
@@ -52,19 +69,24 @@ impl AppState {
     fn store(&self, dir: &PathBuf, cfg: &BoxConfig) {
         let _ = std::fs::create_dir_all(dir);
         let file = dir.join("box.txt");
-        if std::fs::write(
-            &file,
-            format!("{}\n{}\n{}\n", cfg.base_url, cfg.user, cfg.pass),
-        )
-        .is_ok()
-        {
+        let keyring_ok = sparrow_cannon_core::pass::store_to_keyring(&cfg.pass);
+        let body = if keyring_ok {
+            format!("{}\n{}\n", cfg.base_url, cfg.user)
+        } else {
+            // Android-Fallback: Klartext in der Sandbox, chmod 600
+            format!("{}\n{}\n{}\n", cfg.base_url, cfg.user, cfg.pass)
+        };
+        if std::fs::write(&file, body).is_ok() {
             #[cfg(unix)]
             {
                 use std::os::unix::fs::PermissionsExt;
                 let _ =
                     std::fs::set_permissions(&file, std::fs::Permissions::from_mode(0o600));
             }
-            eprintln!("[cannon] box-config gespeichert in {}", file.display());
+            eprintln!(
+                "[cannon] box-config gespeichert ({})",
+                if keyring_ok { "keyring" } else { "datei" }
+            );
         }
     }
 }
@@ -75,6 +97,7 @@ fn setup(state: &AppState) -> Result<(BoxProfile, BTreeMap<String, Host>), Strin
     let cfg = state.0.lock().unwrap().clone();
     let pass = cfg
         .as_ref()
+        .filter(|c| !c.pass.is_empty())
         .map(|c| c.pass.clone())
         .or_else(pass::resolve_from_env_or_keyring)
         .ok_or("kein Box-Passwort — bitte unten einrichten")?;
