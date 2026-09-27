@@ -191,6 +191,7 @@ pub fn field_defs() -> BTreeMap<&'static str, Vec<FieldDef>> {
         vec![
             FieldDef { key: "connection", label: "SSH-Verbindung", kind: FieldKind::SshConn, required: true },
             FieldDef { key: "command", label: "Befehl", kind: FieldKind::Text, required: true },
+            FieldDef { key: "ok_contains", label: "OK-Muster (enthält, optional)", kind: FieldKind::Text, required: false },
         ],
     );
     def(
@@ -269,10 +270,46 @@ pub fn execute(op: &Op, ctx: &Ctx) -> anyhow::Result<String> {
 }
 
 /// Status einer Op als Kartenzustand.
+/// OK = Zustand erfüllt, FAIL = Zustand nicht erfüllt (z.B. aus),
+/// ERR = Check selbst fehlgeschlagen (netz/ssh).
 fn eval(op: &Op, ctx: &Ctx) -> (String, String) {
-    match execute(op, ctx) {
-        Ok(out) => ("OK".into(), out.chars().take(300).collect()),
-        Err(e) => ("ERR".into(), e.to_string()),
+    match op.kind.as_str() {
+        "ssh.run" => {
+            let dest = match ctx.ssh_dest(&op.params) {
+                Ok(d) => d,
+                Err(e) => return ("ERR".into(), e.to_string()),
+            };
+            match ssh(&dest, op.params.get("command")) {
+                Err(e) => ("ERR".into(), e.to_string()),
+                Ok(out) => {
+                    let want = op.params.get("ok_contains");
+                    let ok = want.is_empty() || out.contains(want);
+                    (
+                        if ok { "OK".into() } else { "FAIL".into() },
+                        out.chars().take(300).collect(),
+                    )
+                }
+            }
+        }
+        "ping.check" => match ping(op.params.get("host")) {
+            Ok(out) => ("OK".into(), out.chars().take(120).collect()),
+            Err(e) => ("FAIL".into(), e.to_string()),
+        },
+        "fritzbox.status" => {
+            let b = match ctx.box_by_param(&op.params) {
+                Ok(b) => b,
+                Err(e) => return ("ERR".into(), e.to_string()),
+            };
+            match tr064::host_status(b, op.params.get("mac")) {
+                Ok(s) if s.active => (
+                    "OK".into(),
+                    format!("läuft ({})", s.ip.as_deref().unwrap_or("IP unbekannt")),
+                ),
+                Ok(_) => ("FAIL".into(), "aus".into()),
+                Err(e) => ("ERR".into(), e.to_string()),
+            }
+        }
+        other => ("ERR".into(), format!("unbekannte methode: {other}")),
     }
 }
 

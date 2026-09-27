@@ -572,7 +572,11 @@ function App() {
                   </For>
                 </select>
               </label>
-              <For each={methods().find((m) => m.kind === addKind())?.fields ?? []}>
+              <For
+                each={(methods().find((m) => m.kind === addKind())?.fields ?? []).filter(
+                  (f) => !(addRole() === "action" && f.key === "ok_contains")
+                )}
+              >
                 {(f) => (
                   <label class="block">
                     <span class="text-xs text-muted">
