@@ -10,13 +10,25 @@ type Row = {
   hostname?: string | null;
 };
 
+type Action = {
+  id: string;
+  host: string;
+  state: "OK" | "FAIL" | "ERR" | "IDLE";
+  output: string;
+  hasRun: boolean;
+};
+
 const dotColor = (s: Row["state"]) =>
   s === "UP" ? "bg-up" : s === "DOWN" ? "bg-down" : "bg-err";
+
+const actionDot = (s: Action["state"]) =>
+  s === "OK" ? "bg-up" : s === "FAIL" ? "bg-down" : s === "ERR" ? "bg-err" : "bg-muted";
 
 const boxUnknown = (r: Row) => /714|NoSuchEntry/i.test(r.hostname ?? "");
 
 function App() {
   const [rows, setRows] = createSignal<Row[]>([]);
+  const [acts, setActs] = createSignal<Action[]>([]);
   const [busy, setBusy] = createSignal("");
   const [error, setError] = createSignal("");
   const [lastCheck, setLastCheck] = createSignal("");
@@ -35,12 +47,11 @@ function App() {
     const t = window.setTimeout(() => setSlow(true), 300);
     try {
       setRows(await invoke<Row[]>("get_status"));
+      setActs(await invoke<Action[]>("get_actions"));
       setError("");
       setLastCheck(new Date().toLocaleTimeString());
     } catch (e) {
-      const msg = String(e);
-      setError(msg);
-      if (msg.includes("kein Box-Passwort")) setShowSetup(true);
+      setError(String(e));
     } finally {
       window.clearTimeout(t);
       setSlow(false);
@@ -57,6 +68,19 @@ function App() {
     setError("");
     try {
       await invoke("wake", { hostId: id });
+      await refresh();
+    } catch (e) {
+      setError(String(e));
+    } finally {
+      setBusy("");
+    }
+  };
+
+  const runAction = async (id: string) => {
+    setBusy(id);
+    setError("");
+    try {
+      await invoke("run_action", { id });
       await refresh();
     } catch (e) {
       setError(String(e));
@@ -176,6 +200,37 @@ function App() {
           </div>
         </Show>
       </div>
+
+      <Show when={acts().length}>
+        <h2 class="mb-3 mt-6 text-sm font-semibold text-muted">aktionen</h2>
+        <div class="grid grid-cols-1 gap-3.5 sm:grid-cols-2 lg:grid-cols-3">
+          <For each={acts()}>
+            {(a) => (
+              <div class="flex flex-col gap-2 rounded-xl border border-line bg-card p-4">
+                <div class="flex items-center gap-2 font-semibold">
+                  <span class={`size-2.5 shrink-0 rounded-full ${actionDot(a.state)}`} />
+                  <span>{a.id}</span>
+                  <span class="ml-auto font-mono text-xs font-normal text-muted">
+                    {a.host}
+                  </span>
+                </div>
+                <div class="min-h-4 text-xs text-muted">
+                  {a.output.split("\n")[0] || a.state}
+                </div>
+                <Show when={a.hasRun}>
+                  <button
+                    disabled={busy() === a.id}
+                    onClick={() => runAction(a.id)}
+                    class="cursor-pointer rounded-lg bg-accent py-3 text-sm font-semibold text-[#0d1117] transition hover:brightness-110 active:opacity-80 disabled:cursor-default disabled:opacity-60"
+                  >
+                    {busy() === a.id ? "läuft…" : "Ausführen"}
+                  </button>
+                </Show>
+              </div>
+            )}
+          </For>
+        </div>
+      </Show>
 
       <p class="mt-4 flex items-center gap-2 text-xs text-muted">
         aktualisiert: {lastCheck() || "…"} (10s)

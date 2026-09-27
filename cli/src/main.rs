@@ -27,6 +27,10 @@ enum Cmd {
     Status { host: Option<String> },
     /// Listet die TR-064-Services der Box (Diagnose + später generischer Runner).
     Doctor,
+    /// Zeigt alle Actions mit Live-Status.
+    Actions,
+    /// Führt eine Action aus.
+    Run { action: String },
 }
 
 /// Passwort-Auflösung für die gewählte Box: CANNON_PASS → keyring(box-id) → Prompt.
@@ -94,6 +98,32 @@ fn main() -> anyhow::Result<()> {
                     ),
                     Err(e) => println!("{:<10} ERR   {:<16} {}", id, "-", e.root_cause()),
                 }
+            }
+        }
+        Cmd::Actions => {
+            for (id, a) in &conf.actions {
+                let dest = conf.ssh_dest(&a.host).unwrap_or_else(|e| e.to_string());
+                let r = sparrow_cannon_core::actions::check(&dest, id, a);
+                println!(
+                    "{:<20} {:<5} {}",
+                    id,
+                    r.state,
+                    r.output.lines().next().unwrap_or("")
+                );
+            }
+            if conf.actions.is_empty() {
+                println!("keine [actions.*] in der config");
+            }
+        }
+        Cmd::Run { action } => {
+            let a = conf
+                .actions
+                .get(&action)
+                .with_context(|| format!("action '{action}' fehlt in der config"))?;
+            let dest = conf.ssh_dest(&a.host)?;
+            let out = sparrow_cannon_core::actions::run(&dest, a)?;
+            if !out.is_empty() {
+                println!("{out}");
             }
         }
         Cmd::Doctor => {

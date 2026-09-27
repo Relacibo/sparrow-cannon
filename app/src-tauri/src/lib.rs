@@ -1,3 +1,4 @@
+use sparrow_cannon_core::actions::{self, ActionFile, ActionResult};
 use sparrow_cannon_core::config::ConfigFile;
 use sparrow_cannon_core::{pass, BoxProfile, Host};
 use serde::Serialize;
@@ -86,19 +87,16 @@ fn config_path_static() -> PathBuf {
 
 /// Config + Passwort laden, Default-Box wählen.
 fn setup(app: &tauri::AppHandle) -> Result<(BoxProfile, BTreeMap<String, Host>), String> {
-    use tauri::Manager;
     let path = config_path(app);
-    let mut conf = ConfigFile::load_from(path.clone()).unwrap_or_else(|_| {
-        let builtin = ConfigFile::builtin();
-        let _ = builtin.save_to(&path);
-        builtin
-    });
-    migrate_legacy_box_txt(
-        &app.path()
+    let mut conf = ConfigFile::load_from(path.clone()).unwrap_or_else(|_| ConfigFile::builtin());
+    {
+        use tauri::Manager;
+        let data_dir = app
+            .path()
             .app_data_dir()
-            .expect("app_data_dir nicht auflösbar"),
-        &mut conf,
-    );
+            .expect("app_data_dir nicht auflösbar");
+        migrate_legacy_box_txt(&data_dir, &mut conf);
+    }
     let (box_id, _url, _user) = conf
         .boxes
         .iter()
@@ -113,6 +111,48 @@ fn setup(app: &tauri::AppHandle) -> Result<(BoxProfile, BTreeMap<String, Host>),
         .cloned()
         .ok_or("box fehlt nach dem build")?;
     Ok((box_, conf.hosts()))
+}
+
+fn load_conf(app: &tauri::AppHandle) -> ConfigFile {
+    let path = config_path(app);
+    ConfigFile::load_from(path).unwrap_or_else(|_| ConfigFile::builtin())
+}
+
+#[tauri::command]
+fn get_actions(app: tauri::AppHandle) -> Result<Vec<ActionResult>, String> {
+    let conf = load_conf(&app);
+    let hosts = conf.hosts();
+    let mut out = Vec::new();
+    for (id, a) in &conf.actions {
+        let dest = hosts
+            .get(&a.host)
+            .filter(|h| !h.ssh.is_empty())
+            .map(|h| h.ssh.clone());
+        let r = match &dest {
+            Some(d) => actions::check(d, id, a),
+            None => ActionResult {
+                id: id.clone(),
+                host: a.host.clone(),
+                state: "ERR".into(),
+                output: format!("host '{}' hat kein ssh-ziel", a.host),
+                has_run: !a.run.is_empty(),
+            },
+        };
+        out.push(r);
+    }
+    Ok(out)
+}
+
+#[tauri::command]
+fn run_action(id: String, app: tauri::AppHandle) -> Result<String, String> {
+    let conf = load_conf(&app);
+    let a: ActionFile = conf
+        .actions
+        .get(&id)
+        .cloned()
+        .ok_or(format!("action '{id}' fehlt"))?;
+    let dest = conf.ssh_dest(&a.host).map_err(|e| e.to_string())?;
+    actions::run(&dest, &a).map_err(|e| e.to_string())
 }
 
 /// Werte zum Vorausfüllen des Setup-Modals.
@@ -175,6 +215,8 @@ fn get_status(app: tauri::AppHandle) -> Result<Vec<StatusRow>, String> {
     let (box_, hosts) = setup(&app)?;
     Ok(hosts
         .into_iter()
+        // Hosts ohne MAC sind reine SSH-Hosts — die Fritzbox kennt sie nicht.
+        .filter(|(_, h)| !h.mac.is_empty())
         .map(|(id, h)| match sparrow_cannon_core::status(&box_, &h) {
             Ok(s) => {
                 eprintln!("[cannon] status {id}: ok in {:?}", t0.elapsed());
@@ -216,7 +258,9 @@ pub fn run() {
             get_status,
             wake,
             set_box_config,
-            get_box_info
+            get_box_info,
+            get_actions,
+            run_action
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

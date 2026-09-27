@@ -2,6 +2,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
+use crate::actions::ActionFile;
 use crate::{BoxProfile, Host};
 
 /// Config-Datei: `~/.config/sparrow-cannon/config.toml`.
@@ -12,6 +13,8 @@ pub struct ConfigFile {
     pub boxes: BTreeMap<String, BoxFile>,
     #[serde(default)]
     pub hosts: BTreeMap<String, HostFile>,
+    #[serde(default)]
+    pub actions: BTreeMap<String, ActionFile>,
 }
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -23,6 +26,8 @@ pub struct BoxFile {
 #[derive(Debug, Deserialize, Serialize)]
 pub struct HostFile {
     pub mac: String,
+    #[serde(default)]
+    pub ssh: String,
     #[serde(default)]
     pub note: String,
 }
@@ -84,10 +89,15 @@ impl ConfigFile {
             "pc".into(),
             HostFile {
                 mac: "a8:a1:59:db:b3:7e".into(),
+                ssh: String::new(),
                 note: "anton-bruckner".into(),
             },
         );
-        Self { boxes, hosts }
+        Self {
+            boxes,
+            hosts,
+            actions: BTreeMap::new(),
+        }
     }
 
     pub fn load_default_or_builtin() -> Self {
@@ -123,9 +133,22 @@ impl ConfigFile {
                         id: id.clone(),
                         mac: h.mac.clone(),
                         note: h.note.clone(),
+                        ssh: h.ssh.clone(),
                     },
                 )
             })
             .collect()
+    }
+
+    /// SSH-Ziel eines Hosts (für Actions).
+    pub fn ssh_dest(&self, host_id: &str) -> anyhow::Result<String> {
+        let h = self
+            .hosts
+            .get(host_id)
+            .ok_or_else(|| anyhow::anyhow!("host '{host_id}' fehlt in der config"))?;
+        if h.ssh.is_empty() {
+            anyhow::bail!("host '{host_id}' hat kein ssh-ziel (ssh = ... in der config)");
+        }
+        Ok(h.ssh.clone())
     }
 }

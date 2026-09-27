@@ -1,3 +1,4 @@
+pub mod actions;
 pub mod config;
 pub mod digest;
 pub mod pass;
@@ -22,6 +23,8 @@ pub struct Host {
     pub id: String,
     pub mac: String,
     pub note: String,
+    /// SSH-Ziel (alias oder user@host) — leer = kein SSH-Provider.
+    pub ssh: String,
 }
 
 /// Live-Zustand eines Hosts laut Box.
