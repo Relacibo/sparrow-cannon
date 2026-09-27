@@ -43,6 +43,8 @@ const actionDot = (s: string) =>
 function App() {
   const [rows, setRows] = createSignal<Row[]>([]);
   const [wids, setWids] = createSignal<WidgetRow[]>([]);
+  const [sshConns, setSshConns] = createSignal<SshConn[]>([]);
+  const [boxConns, setBoxConns] = createSignal<BoxConn[]>([]);
   const [busy, setBusy] = createSignal("");
   const [error, setError] = createSignal("");
   const [lastCheck, setLastCheck] = createSignal("");
