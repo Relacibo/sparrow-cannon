@@ -40,6 +40,8 @@ const dotColor = (s: Row["state"]) =>
 const actionDot = (s: string) =>
   s === "OK" ? "bg-up" : s === "FAIL" ? "bg-down" : s === "ERR" ? "bg-err" : "bg-muted";
 
+const boxUnknown = (r: Row) => /714|NoSuchEntry/i.test(r.hostname ?? "");
+
 function App() {
   const [rows, setRows] = createSignal<Row[]>([]);
   const [wids, setWids] = createSignal<WidgetRow[]>([]);
