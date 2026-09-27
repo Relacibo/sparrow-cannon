@@ -70,6 +70,7 @@ function App() {
       setWids(await invoke<WidgetRow[]>("get_widgets"));
       setSshConns(await invoke<SshConn[]>("get_ssh_connections"));
       setBoxConns(await invoke<BoxConn[]>("get_box_connections"));
+      invoke<string>("get_pubkey").then(setPubkey).catch(() => setPubkey(""));
       setError("");
       setLastCheck(new Date().toLocaleTimeString());
     } catch (e) {
@@ -386,6 +387,17 @@ function App() {
                 </div>
               )}
             </For>
+            <Show when={pubkey()}>
+              <div class="mb-2 flex items-center gap-2 text-[10px] text-muted">
+                <span class="shrink-0">dein pubkey (in die authorized_keys der zielsysteme):</span>
+                <button
+                  class="cursor-pointer rounded border border-line px-2 py-0.5 transition hover:text-fg"
+                  onClick={() => navigator.clipboard?.writeText(pubkey())}
+                >
+                  kopieren
+                </button>
+              </div>
+            </Show>
             <form
               class="mt-3 flex flex-wrap gap-2"
               onSubmit={upsertSsh}

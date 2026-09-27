@@ -193,6 +193,16 @@ fn get_box_connections(app: tauri::AppHandle) -> Result<Vec<BoxConnInfo>, String
         .collect())
 }
 
+/// Lokaler SSH-Pubkey (zum Verteilen auf Zielsysteme).
+#[tauri::command]
+fn get_pubkey() -> Result<String, String> {
+    let home = std::env::var("HOME").map_err(|_| "kein HOME")?;
+    let pub_path = std::path::Path::new(&home).join(".ssh/id_ed25519.pub");
+    std::fs::read_to_string(&pub_path)
+        .map(|s| s.trim().to_string())
+        .map_err(|_| format!("{} nicht lesbar — erst ssh-keygen?", pub_path.display()))
+}
+
 #[tauri::command]
 fn upsert_ssh_conn(
     id: String,
@@ -447,6 +457,7 @@ pub fn run() {
             remove_widget,
             get_ssh_connections,
             get_box_connections,
+            get_pubkey,
             upsert_ssh_conn,
             remove_ssh_conn,
             upsert_box_conn,
