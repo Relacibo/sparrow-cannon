@@ -55,7 +55,7 @@ function App() {
   const [loaded, setLoaded] = createSignal(false);
   const [view, setView] = createSignal<"dash" | "conns">("dash");
   const [edit, setEdit] = createSignal(false);
-  const [menuOpen, setMenuOpen] = createSignal(false);
+
 
   // Karten-Builder
   const [methods, setMethods] = createSignal<MethodDef[]>([]);
@@ -220,16 +220,7 @@ function App() {
     <div class="mx-auto max-w-[900px] p-5 pb-[max(1.25rem,env(safe-area-inset-bottom))]">
       <h1 class="mb-4 flex items-center gap-2 text-lg font-semibold text-muted">
         sparrow-cannon
-        <button
-          class="ml-auto cursor-pointer rounded-lg border border-line px-2.5 py-1.5 text-muted transition hover:text-fg sm:hidden"
-          onClick={() => setMenuOpen(true)}
-          aria-label="Menü"
-        >
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" class="size-4">
-            <path d="M4 6h16M4 12h16M4 18h16" />
-          </svg>
-        </button>
-        <span class="ml-auto hidden items-center gap-2 sm:flex">
+        <span class="ml-auto flex items-center gap-2">
           <button
             class={`cursor-pointer rounded-lg border px-3 py-1 text-xs transition active:opacity-70 ${
               view() === "dash"
@@ -597,57 +588,6 @@ function App() {
                 Speichern
               </button>
             </form>
-          </div>
-        </div>
-      </Show>
-
-      {/* Menü (mobil) */}
-      <Show when={menuOpen()}>
-        <div
-          class="fixed inset-0 z-50 bg-black/60"
-          onClick={() => setMenuOpen(false)}
-        >
-          <div
-            class="h-full w-64 border-r border-line bg-bg p-4"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <div class="mb-4 font-semibold">Menü</div>
-            <nav class="flex flex-col gap-1">
-              <button
-                class={`cursor-pointer rounded-lg px-3 py-3 text-left text-sm transition ${
-                  view() === "dash" ? "bg-card text-accent" : "text-muted hover:text-fg"
-                }`}
-                onClick={() => {
-                  setView("dash");
-                  setMenuOpen(false);
-                }}
-              >
-                Karten
-              </button>
-              <button
-                class={`cursor-pointer rounded-lg px-3 py-3 text-left text-sm transition ${
-                  view() === "conns" ? "bg-card text-accent" : "text-muted hover:text-fg"
-                }`}
-                onClick={() => {
-                  setView("conns");
-                  setMenuOpen(false);
-                }}
-              >
-                Verbindungen
-              </button>
-              <button
-                class={`cursor-pointer rounded-lg px-3 py-3 text-left text-sm transition ${
-                  edit() ? "bg-card text-accent" : "text-muted hover:text-fg"
-                }`}
-                onClick={() => {
-                  setView("dash");
-                  setEdit(!edit());
-                  setMenuOpen(false);
-                }}
-              >
-                {edit() ? "✓ Karten bearbeiten (an)" : "Karten bearbeiten"}
-              </button>
-            </nav>
           </div>
         </div>
       </Show>
