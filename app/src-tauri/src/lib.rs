@@ -66,10 +66,15 @@ fn migrate_legacy_box_txt(dir: &PathBuf, conf: &mut ConfigFile) {
         let _ = std::fs::remove_file(&legacy);
         return;
     };
+    let legacy_pass = lines.next().map(str::trim).unwrap_or_default();
     if !url.is_empty() && !conf.boxes.is_empty() {
         let id = conf.boxes.keys().next().cloned().unwrap_or_default();
         conf.upsert_box(&id, url, user);
         let _ = conf.save_to(&config_path_static());
+        if !legacy_pass.is_empty() {
+            // Android-Fallback: Passwort in die neue secrets/<id>.txt übernehmen
+            sparrow_cannon_core::pass::file_store(dir, &id, legacy_pass);
+        }
         eprintln!("[cannon] legacy box.txt übernommen");
     }
     let _ = std::fs::remove_file(&legacy);
