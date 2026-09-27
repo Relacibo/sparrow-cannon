@@ -1,4 +1,5 @@
 import { createSignal, For, onCleanup, onMount, Show } from "solid-js";
+import type { JSX } from "solid-js";
 import { invoke } from "@tauri-apps/api/core";
 
 type Row = {
@@ -45,6 +46,55 @@ const actionDot = (s: string) =>
   s === "OK" ? "bg-up" : s === "FAIL" ? "bg-down" : s === "ERR" ? "bg-err" : "bg-muted";
 
 const boxUnknown = (r: Row) => /714|NoSuchEntry/i.test(r.hostname ?? "");
+
+
+// feather icons (inline, stroke-basiert, monochrom)
+function Icon(props: { name: string; class?: string }) {
+  const paths: Record<string, JSX.Element> = {
+    x: (
+      <>
+        <line x1="18" y1="6" x2="6" y2="18" />
+        <line x1="6" y1="6" x2="18" y2="18" />
+      </>
+    ),
+    key: (
+      <path d="M21 2l-2 2m-7.61 7.61a5.5 5.5 0 1 1-7.778 7.778 5.5 5.5 0 0 1 7.777-7.777zm0 0L15.5 7.5m0 0l3 3L22 7l-3-3m-3.5 3.5L19 4" />
+    ),
+    copy: (
+      <>
+        <rect x="9" y="9" width="13" height="13" rx="2" ry="2" />
+        <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
+      </>
+    ),
+    pause: (
+      <>
+        <rect x="6" y="4" width="4" height="16" />
+        <rect x="14" y="4" width="4" height="16" />
+      </>
+    ),
+    play: <polygon points="5 3 19 12 5 21 5 3" />,
+    check: <polyline points="20 6 9 17 4 12" />,
+    plus: (
+      <>
+        <line x1="12" y1="5" x2="12" y2="19" />
+        <line x1="5" y1="12" x2="19" y2="12" />
+      </>
+    ),
+  };
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      stroke-width="2"
+      stroke-linecap="round"
+      stroke-linejoin="round"
+      class={props.class ?? "size-3.5"}
+    >
+      {paths[props.name]}
+    </svg>
+  );
+}
 
 function App() {
   const [rows, setRows] = createSignal<Row[]>([]);
@@ -473,7 +523,7 @@ function App() {
                             .catch((e) => setError(String(e)))
                         }
                       >
-                        📋
+                        <Icon name="copy" />
                       </button>
                       <button
                         class="shrink-0 cursor-pointer text-muted transition hover:text-fg"
@@ -485,14 +535,14 @@ function App() {
                             .catch((e) => setError(String(e)))
                         }
                       >
-                        🔑
+                        <Icon name="key" />
                       </button>
                     </Show>
                     <button
                       class="shrink-0 cursor-pointer text-muted transition hover:text-down"
                       onClick={() => invoke("remove_ssh_conn", { id: c.id }).then(refresh)}
                     >
-                      ✕
+                      <Icon name="x" />
                     </button>
                   </div>
                 )}
@@ -529,7 +579,7 @@ function App() {
                       class="shrink-0 cursor-pointer text-muted transition hover:text-down"
                       onClick={() => invoke("remove_box_conn", { id: c.id }).then(refresh)}
                     >
-                      ✕
+                      <Icon name="x" />
                     </button>
                   </div>
                 )}
@@ -567,9 +617,9 @@ function App() {
           fallback={
             <Show
               when={!error()}
-              fallback={<span class="font-semibold text-err">✕</span>}
+              fallback={<Icon name="x" class="size-3.5 font-semibold text-err" />}
             >
-              <span class="font-semibold text-up">✓</span>
+              <Icon name="check" class="size-3.5 font-semibold text-up" />
             </Show>
           }
         >
