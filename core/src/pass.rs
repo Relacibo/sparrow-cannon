@@ -9,7 +9,7 @@ pub fn resolve_from_env_or_keyring() -> Option<String> {
         }
     }
     let out = std::process::Command::new("secret-tool")
-        .args(["lookup", "service", "fritz-cannon", "username", "fritzbox"])
+        .args(["lookup", "service", "sparrow-cannon", "username", "fritzbox"])
         .output()
         .ok()?;
     if out.status.success() {

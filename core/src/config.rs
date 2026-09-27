@@ -4,7 +4,7 @@ use std::path::PathBuf;
 
 use crate::{BoxProfile, Host};
 
-/// Config-Datei: `~/.config/fritz-cannon/config.toml`.
+/// Config-Datei: `~/.config/sparrow-cannon/config.toml`.
 /// Passwörter gehören hier niemals hinein.
 #[derive(Debug, Deserialize)]
 pub struct ConfigFile {
@@ -33,7 +33,7 @@ impl ConfigFile {
             .map(PathBuf::from)
             .or_else(|_| std::env::var("HOME").map(|h| PathBuf::from(h).join(".config")))
             .unwrap_or_else(|_| PathBuf::from(".config"));
-        base.join("fritz-cannon").join("config.toml")
+        base.join("sparrow-cannon").join("config.toml")
     }
 
     pub fn load_default() -> anyhow::Result<Self> {

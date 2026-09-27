@@ -293,8 +293,8 @@ dependencies = [
 name = "cannon-app"
 version = "0.1.0"
 dependencies = [
- "fritz-cannon-core",
  "serde",
+ "sparrow-cannon-core",
  "tauri",
  "tauri-build",
 ]
@@ -925,29 +925,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "cb4cb245038516f5f85277875cdaa4f7d2c9a0fa0468de06ed190163b1581fcf"
 dependencies = [
  "percent-encoding",
-]
-
-[[package]]
-name = "fritz-cannon-cli"
-version = "0.0.1"
-dependencies = [
- "anyhow",
- "clap",
- "fritz-cannon-core",
- "rpassword",
-]
-
-[[package]]
-name = "fritz-cannon-core"
-version = "0.0.1"
-dependencies = [
- "anyhow",
- "getrandom 0.2.17",
- "md-5",
- "serde",
- "sha2",
- "toml 0.8.23",
- "ureq",
 ]
 
 [[package]]
@@ -3088,6 +3065,29 @@ dependencies = [
  "gobject-sys",
  "libc",
  "system-deps",
+]
+
+[[package]]
+name = "sparrow-cannon-cli"
+version = "0.0.1"
+dependencies = [
+ "anyhow",
+ "clap",
+ "rpassword",
+ "sparrow-cannon-core",
+]
+
+[[package]]
+name = "sparrow-cannon-core"
+version = "0.0.1"
+dependencies = [
+ "anyhow",
+ "getrandom 0.2.17",
+ "md-5",
+ "serde",
+ "sha2",
+ "toml 0.8.23",
+ "ureq",
 ]
 
 [[package]]

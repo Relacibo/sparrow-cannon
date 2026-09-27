@@ -1,5 +1,5 @@
-use fritz_cannon_core::config::ConfigFile;
-use fritz_cannon_core::{pass, BoxProfile, Host};
+use sparrow_cannon_core::config::ConfigFile;
+use sparrow_cannon_core::{pass, BoxProfile, Host};
 use serde::Serialize;
 use std::collections::BTreeMap;
 use std::sync::Mutex;
@@ -48,7 +48,7 @@ fn get_status(state: tauri::State<AppState>) -> Result<Vec<StatusRow>, String> {
     let (box_, hosts) = setup(&state)?;
     Ok(hosts
         .into_iter()
-        .map(|(id, h)| match fritz_cannon_core::status(&box_, &h) {
+        .map(|(id, h)| match sparrow_cannon_core::status(&box_, &h) {
             Ok(s) => StatusRow {
                 id,
                 mac: h.mac,
@@ -73,7 +73,7 @@ fn get_status(state: tauri::State<AppState>) -> Result<Vec<StatusRow>, String> {
 fn wake(host_id: String, state: tauri::State<AppState>) -> Result<(), String> {
     let (box_, hosts) = setup(&state)?;
     let h = hosts.get(&host_id).ok_or(format!("host '{host_id}' fehlt"))?;
-    fritz_cannon_core::wake(&box_, h).map_err(|e| e.to_string())
+    sparrow_cannon_core::wake(&box_, h).map_err(|e| e.to_string())
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]

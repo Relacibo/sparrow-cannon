@@ -1,4 +1,4 @@
-# fritz-cannon
+# sparrow-cannon
 
 > 🚧 **WIP** — frühes Experiment, nichts Benutzbares. Struktur + Roadmap siehe unten.
 
@@ -16,7 +16,7 @@ mit Digest-Auth, erreichbar unter derselben URL im LAN wie über den Tunnel.
 ## Architektur
 
 ```
-fritz-cannon/
+sparrow-cannon/
 ├── core/    # TR-064-Client (Digest+SOAP), Config, Action-Registry
 ├── cli/     # Binary "cannon"  → Terminal / cron
 └── app/     # Tauri v2 + Solid → Linux-GUI + Android-APK (später)

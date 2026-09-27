@@ -1,7 +1,7 @@
 use anyhow::Context;
 use clap::{Parser, Subcommand};
-use fritz_cannon_core::config::ConfigFile;
-use fritz_cannon_core::{BoxProfile, Host};
+use sparrow_cannon_core::config::ConfigFile;
+use sparrow_cannon_core::{BoxProfile, Host};
 use std::io::Write;
 
 #[derive(Parser)]
@@ -31,7 +31,7 @@ enum Cmd {
 
 /// Passwort-Auflösung: CANNON_PASS → secret-tool (keyring) → Prompt.
 fn resolve_pass() -> anyhow::Result<String> {
-    fritz_cannon_core::pass::resolve_from_env_or_keyring().map_or_else(
+    sparrow_cannon_core::pass::resolve_from_env_or_keyring().map_or_else(
         || rpassword::prompt_password("Fritzbox-Passwort: ").context("passwort-eingabe"),
         Ok,
     )
@@ -67,7 +67,7 @@ fn main() -> anyhow::Result<()> {
             let h: &Host = hosts
                 .get(&host)
                 .with_context(|| format!("host '{host}' fehlt in der config"))?;
-            fritz_cannon_core::wake(&box_, h)?;
+            sparrow_cannon_core::wake(&box_, h)?;
             println!("wake an {host} ({}) geschickt.", h.mac);
         }
         Cmd::Status { host } => {
@@ -80,7 +80,7 @@ fn main() -> anyhow::Result<()> {
             }
             println!("{:<10} {:<5} {:<16} {}", "host", "state", "ip", "hostname");
             for (id, h) in &hosts {
-                match fritz_cannon_core::status(&box_, h) {
+                match sparrow_cannon_core::status(&box_, h) {
                     Ok(s) => println!(
                         "{:<10} {:<5} {:<16} {}",
                         id,
@@ -98,7 +98,7 @@ fn main() -> anyhow::Result<()> {
                 "box '{}' → {} (user {})",
                 box_.name, box_.base_url, box_.user
             );
-            let svcs = fritz_cannon_core::tr064::services(&box_)?;
+            let svcs = sparrow_cannon_core::tr064::services(&box_)?;
             println!("{} services:", svcs.len());
             for (stype, url) in svcs {
                 println!("  {stype:<60} {url}");

@@ -1,6 +1,6 @@
 # Dashboard: SSH-Actions + Status-Karten
 
-> Erweiterung von fritz-cannon: vom WoL-Werkzeug zum personalisierten
+> Erweiterung von sparrow-cannon: vom WoL-Werkzeug zum personalisierten
 > Steuerpult — Fritzbox- **und** SSH-Actions mit Live-Status.
 
 ## Vision
@@ -44,4 +44,4 @@ Action { target, call }          Status { target, check }
 - Alles strikt **lokal**: Bind nur LAN/WireGuard, kein Cloud-Gedöns.
 - WoL-Status = pingbar (cheap); gstream-Status = ssh-Check (parsen).
 - Scope-Kontrolle: Das hier ist Phase 2–3, erst core+cli fertig machen.
-- Name/Repo bleibt fritz-cannon (Dashboard ist ein Feature, kein Fork).
+- Name/Repo bleibt sparrow-cannon (Dashboard ist ein Feature, kein Fork).
