@@ -19,3 +19,11 @@ Regeln:
 - Nicht mit einem still fehlgeschlagenen Build-Kommando weiterarbeiten:
   Build-/Check-Output immer prüfen (Exit-Code oder Output-Match), bevor der
   nächste Schritt behauptet wird.
+
+## Build-Falle: dist einbetten
+
+- Nach jedem Frontend-Build (`npm run build` in `app/`) muss `touch app/src-tauri/src/lib.rs`
+  laufen, bevor `cargo build`/`cargo tauri android build` — cargo erkennt dist-Änderungen
+  sonst NICHT und bettet das alte Frontend ein (stale-dist).
+- Build-Output immer verifizieren (Exit-Code/output match) — npm/cargo-Ketten aus
+  falschem Arbeitsverzeichnis scheitern still.

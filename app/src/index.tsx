@@ -9,17 +9,38 @@ window.addEventListener("unhandledrejection", (e) => {
   invoke("js_log", { msg: `unhandled rejection: ${e.reason}` }).catch(() => {});
 });
 
-// freeze-probe: frame-deltas messen, lücken >150ms melden (nur bei sichtbarem fenster)
-let lastFrame = performance.now();
-function frameProbe(now: number) {
-  const delta = now - lastFrame;
-  lastFrame = now;
-  if (delta > 150 && delta < 10000 && document.visibilityState === "visible") {
+// paint-stall-monitor: rAF-gaps = painting hängt (idle-pause macht false positives,
+// deshalb nur werten, wenn kürzlich ein dom-update war — flag aus App.tsx)
+let lastPaint = performance.now();
+function paintProbe(now: number) {
+  const delta = now - lastPaint;
+  lastPaint = now;
+  if (
+    delta > 150 &&
+    delta < 10000 &&
+    document.visibilityState === "visible" &&
+    (window as unknown as { __recentUpdate?: boolean }).__recentUpdate
+  ) {
     invoke("js_log", {
-      msg: `jank: ${Math.round(delta)}ms @ ${new Date().toLocaleTimeString()}`,
+      msg: `paint-stall: ${Math.round(delta)}ms @ ${new Date().toLocaleTimeString()}`,
     }).catch(() => {});
   }
-  requestAnimationFrame(frameProbe);
+  requestAnimationFrame(paintProbe);
+}
+requestAnimationFrame(paintProbe);
+
+// freeze-probe v2: timer-drift statt rAF (rAF pausiert im idle → false positives)
+let lastTick = performance.now();
+setInterval(() => {
+  const now = performance.now();
+  const drift = now - lastTick - 100;
+  lastTick = now;
+  if (drift > 300 && document.visibilityState === "visible") {
+    invoke("js_log", {
+      msg: `timer-jank: ${Math.round(drift)}ms drift @ ${new Date().toLocaleTimeString()}`,
+    }).catch(() => {});
+  }
+}, 100);
 }
 requestAnimationFrame(frameProbe);
 import "./index.css";

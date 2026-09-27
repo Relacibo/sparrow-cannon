@@ -84,7 +84,11 @@ fn spawn_scheduler(app: tauri::AppHandle) {
                 secrets_dir: secrets_dir(&app),
             };
 
-            // widget-statusse
+            // widget-statusse (kill-switch: CANNON_NO_CHECKS=1)
+            let no_checks = std::env::var("CANNON_NO_CHECKS").is_ok();
+            if no_checks {
+                continue;
+            }
             for w in &conf.widgets {
                 if w.disabled || w.status_paused {
                     continue;
