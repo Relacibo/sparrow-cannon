@@ -1,0 +1,76 @@
+name: release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  apk:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-linux-android
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+
+      - uses: android-actions/setup-android@v3
+
+      - name: Pin NDK 26.3
+        run: sdkmanager --install "ndk;26.3.11579264" >/dev/null
+
+      - name: Install tauri-cli
+        run: npm install -g @tauri-apps/cli@^2
+
+      - name: Cache cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: apk-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: npm ci
+        working-directory: app
+        run: npm ci
+
+      - name: Build APK (aarch64)
+        working-directory: app
+        run: |
+          SDK="${ANDROID_HOME:-/usr/local/lib/android/sdk}"
+          NDK="$SDK/ndk/26.3.11579264"
+          export NDK_HOME="$NDK" ANDROID_NDK_HOME="$NDK"
+          export CC_aarch64_linux_android="$NDK/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android24-clang"
+          export AR_aarch64_linux_android="$NDK/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-ar"
+          tauri android build --apk --target aarch64
+
+      - name: Sign APK
+        working-directory: app/src-tauri/gen/android/app/build/outputs/apk/universal/release
+        env:
+          KEYSTORE_B64: ${{ secrets.CANNON_KEYSTORE_B64 }}
+          KEYSTORE_PASS: ${{ secrets.CANNON_KEYSTORE_PASS }}
+        run: |
+          SDK="${ANDROID_HOME:-/usr/local/lib/android/sdk}"
+          echo "$KEYSTORE_B64" | base64 -d > /tmp/cannon.keystore
+          zipalign -p -f 4 app-universal-release-unsigned.apk cannon.apk
+          "$SDK/build-tools/35.0.0/apksigner" sign \
+            --ks /tmp/cannon.keystore --ks-key-alias cannon \
+            --ks-pass "pass:$KEYSTORE_PASS" cannon.apk
+          "$SDK/build-tools/35.0.0/apksigner" verify cannon.apk
+          mv cannon.apk "cannon-${GITHUB_REF_NAME}.apk"
+
+      - name: Create release
+        working-directory: app/src-tauri/gen/android/app/build/outputs/apk/universal/release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release create "$GITHUB_REF_NAME" "cannon-${GITHUB_REF_NAME}.apk" \
+          --title "cannon $GITHUB_REF_NAME" --generate-notes
