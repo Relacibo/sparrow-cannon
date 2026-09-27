@@ -475,7 +475,7 @@ function App() {
                     <span class="ml-auto flex items-center gap-1.5">
                       <Show when={w.pausable && !w.disabled}>
                         <button
-                          class="cursor-pointer text-muted transition hover:text-fg"
+                          class="cursor-pointer rounded p-1 text-muted transition hover:text-fg"
                           title={
                             w.statusPaused
                               ? "Status-Abfrage starten"
@@ -503,11 +503,11 @@ function App() {
                           <Icon name="edit" class="size-3" />
                         </button>
                         <button
-                          class="cursor-pointer text-muted transition hover:text-down"
+                          class="cursor-pointer rounded p-1 text-muted transition hover:text-down"
                           onClick={() => removeWidget(w.id)}
                           title="Karte entfernen"
                         >
-                          <Icon name="trash" class="size-3" />
+                          <Icon name="trash" class="size-4.5" />
                         </button>
                       </Show>
                     </span>
@@ -586,7 +586,7 @@ function App() {
                     </span>
                     <Show when={platform() === "android"}>
                       <button
-                        class="shrink-0 cursor-pointer text-muted transition hover:text-fg"
+                        class="shrink-0 cursor-pointer rounded p-1 text-muted transition hover:text-fg"
                         title="Pubkey kopieren"
                         onClick={() =>
                           invoke<string>("get_conn_pubkey", { id: c.id })
@@ -594,10 +594,10 @@ function App() {
                             .catch((e) => setError(String(e)))
                         }
                       >
-                        <Icon name="copy" />
+                        <Icon name="copy" class="size-4.5" />
                       </button>
                       <button
-                        class="shrink-0 cursor-pointer text-muted transition hover:text-fg"
+                        class="shrink-0 cursor-pointer rounded p-1 text-muted transition hover:text-fg"
                         title="Neuen In-App-Key generieren (überschreibt!)"
                         onClick={() =>
                           invoke<string>("generate_ssh_key", { id: c.id })
@@ -606,14 +606,14 @@ function App() {
                             .catch((e) => setError(String(e)))
                         }
                       >
-                        <Icon name="key" />
+                        <Icon name="key" class="size-4.5" />
                       </button>
                     </Show>
                     <button
-                      class="shrink-0 cursor-pointer text-muted transition hover:text-down"
+                      class="shrink-0 cursor-pointer rounded p-1 text-muted transition hover:text-down"
                       onClick={() => invoke("remove_ssh_conn", { id: c.id }).then(refresh)}
                     >
-                      <Icon name="trash" />
+                      <Icon name="trash" class="size-4.5" />
                     </button>
                   </div>
                 )}
@@ -647,10 +647,10 @@ function App() {
                     </div>
                     <span class="ml-auto text-xs text-muted">{c.hasSecret ? "passwort ok" : "kein passwort"}</span>
                     <button
-                      class="shrink-0 cursor-pointer text-muted transition hover:text-down"
+                      class="shrink-0 cursor-pointer rounded p-1 text-muted transition hover:text-down"
                       onClick={() => invoke("remove_box_conn", { id: c.id }).then(refresh)}
                     >
-                      <Icon name="trash" />
+                      <Icon name="trash" class="size-4.5" />
                     </button>
                   </div>
                 )}
