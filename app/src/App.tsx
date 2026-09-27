@@ -68,8 +68,8 @@ function Icon(props: { name: string; class?: string }) {
     ),
     pause: (
       <>
-        <rect x="6" y="4" width="4" height="16" />
-        <rect x="14" y="4" width="4" height="16" />
+        <line x1="9" y1="5" x2="9" y2="19" />
+        <line x1="15" y1="5" x2="15" y2="19" />
       </>
     ),
     play: <polygon points="5 3 19 12 5 21 5 3" />,
@@ -400,7 +400,9 @@ function App() {
                   <div class="flex items-center gap-2 font-semibold">
                     <span
                       class={`size-2.5 shrink-0 rounded-full ${
-                        w.disabled ? "bg-muted" : actionDot(w.statusState)
+                        w.disabled || w.statusPaused
+                          ? "bg-muted"
+                          : actionDot(w.statusState)
                       }`}
                     />
                     <span>{w.title}</span>
@@ -410,7 +412,7 @@ function App() {
                     <span class="ml-auto flex items-center gap-1.5">
                       <Show when={w.pausable && !w.disabled}>
                         <button
-                          class={`cursor-pointer rounded border px-1.5 py-0.5 text-[10px] transition ${
+                          class={`cursor-pointer rounded border px-2 py-1 text-xs transition ${
                             w.statusPaused
                               ? "border-line text-muted hover:text-fg"
                               : "border-accent text-accent"
