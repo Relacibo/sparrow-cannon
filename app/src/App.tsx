@@ -38,7 +38,9 @@ function App() {
       setError("");
       setLastCheck(new Date().toLocaleTimeString());
     } catch (e) {
-      setError(String(e));
+      const msg = String(e);
+      setError(msg);
+      if (msg.includes("kein Box-Passwort")) setShowSetup(true);
     } finally {
       window.clearTimeout(t);
       setSlow(false);
@@ -96,7 +98,6 @@ function App() {
   let timer: number;
   onMount(async () => {
     await openSetup();
-    if (!hasSaved()) setShowSetup(true);
     refresh();
     timer = setInterval(() => {
       if (!slow()) refresh();
@@ -152,11 +153,15 @@ function App() {
               </div>
               <div class="font-mono text-[10px] text-muted opacity-70">{r.mac}</div>
               <button
-                disabled={busy() === r.id}
+                disabled={busy() === r.id || r.state === "UP"}
                 onClick={() => wake(r.id)}
-                class="cursor-pointer rounded-lg bg-accent py-3 text-sm font-semibold text-[#0d1117] transition hover:brightness-110 active:opacity-80 disabled:cursor-not-allowed disabled:opacity-50"
+                class="cursor-pointer rounded-lg bg-accent py-3 text-sm font-semibold text-[#0d1117] transition hover:brightness-110 active:opacity-80 disabled:cursor-default disabled:opacity-60"
               >
-                {busy() === r.id ? "wird geweckt…" : "Wake"}
+                {busy() === r.id
+                  ? "wird geweckt…"
+                  : r.state === "UP"
+                    ? "läuft"
+                    : "Wake"}
               </button>
             </div>
           )}
