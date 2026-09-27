@@ -102,6 +102,8 @@ function App() {
   });
   onCleanup(() => clearInterval(timer));
 
+  const setupNeeded = () => error().includes("kein Box-Passwort");
+
   return (
     <div class="mx-auto max-w-[900px] p-5 pb-[max(1.25rem,env(safe-area-inset-bottom))]">
       <h1 class="mb-4 flex items-center gap-2 text-lg font-semibold text-muted">
@@ -123,7 +125,7 @@ function App() {
         </button>
       </h1>
 
-      <Show when={error()}>
+      <Show when={error() && !setupNeeded() && !showSetup()}>
         <div class="mb-3 font-mono text-xs break-all text-err">{error()}</div>
       </Show>
 
@@ -185,7 +187,7 @@ function App() {
                 </button>
               </Show>
             </div>
-            <Show when={error()}>
+            <Show when={error() && !setupNeeded()}>
               <div class="mb-3 font-mono text-xs break-all text-err">{error()}</div>
             </Show>
             <div class="flex flex-col gap-3">
