@@ -68,7 +68,8 @@ jobs:
         run: |
           SDK="${ANDROID_HOME:-/usr/local/lib/android/sdk}"
           echo "$KEYSTORE_B64" | base64 -d > /tmp/cannon.keystore
-          zipalign -p -f 4 app-universal-release-unsigned.apk cannon.apk
+          zipalign_path="$SDK/build-tools/35.0.0/zipalign"
+          "$zipalign_path" -p -f 4 app-universal-release-unsigned.apk cannon.apk
           "$SDK/build-tools/35.0.0/apksigner" sign \
             --ks /tmp/cannon.keystore --ks-key-alias cannon \
             --ks-pass "pass:$KEYSTORE_PASS" cannon.apk
