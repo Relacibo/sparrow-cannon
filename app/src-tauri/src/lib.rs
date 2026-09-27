@@ -1,5 +1,5 @@
-use fritz_cannon_core::config::ConfigFile;
-use fritz_cannon_core::{pass, BoxProfile, Host};
+use sparrow_cannon_core::config::ConfigFile;
+use sparrow_cannon_core::{pass, BoxProfile, Host};
 use serde::Serialize;
 use std::collections::BTreeMap;
 use std::path::PathBuf;
@@ -16,95 +16,136 @@ pub struct StatusRow {
     hostname: Option<String>,
 }
 
-/// Zur Laufzeit gesetzte Credentials (Setup-Formular), überschreiben Config/Keyring.
+/// Im Setup-Modal gesetzte Box-Konfiguration; überschreibt Config/Keyring.
 #[derive(Clone)]
-struct Credentials {
+struct BoxConfig {
+    base_url: String,
     user: String,
     pass: String,
 }
 
-struct AppState(Mutex<Option<Credentials>>);
+struct AppState(Mutex<Option<BoxConfig>>);
 
 impl AppState {
-    /// Lädt gespeicherte Credentials aus dem App-Datenverzeichnis (2-Zeilen-Format:
-    /// user \n pass, chmod 600). Kein Cloud-Gedöns.
+    /// Lädt gespeicherte Box-Konfiguration aus dem App-Datenverzeichnis
+    /// (3-Zeilen-Format: url \n user \n pass, chmod 600).
     fn load(dir: PathBuf) -> Self {
-        let file = dir.join("credentials.txt");
-        let creds = std::fs::read_to_string(&file)
-            .ok()
-            .and_then(|raw| {
-                let mut lines = raw.lines();
-                let user = lines.next()?.trim().to_string();
-                let pass = lines.next()?.trim().to_string();
-                (!user.is_empty() && !pass.is_empty()).then_some(Credentials { user, pass })
-            });
-        if creds.is_some() {
-            eprintln!("[cannon] credentials geladen aus {}", file.display());
+        let file = dir.join("box.txt");
+        let cfg = std::fs::read_to_string(&file).ok().and_then(|raw| {
+            let mut lines = raw.lines();
+            let base_url = lines.next()?.trim().to_string();
+            let user = lines.next()?.trim().to_string();
+            let pass = lines.next()?.trim().to_string();
+            (base_url.starts_with("http") && !user.is_empty() && !pass.is_empty())
+                .then_some(BoxConfig {
+                    base_url,
+                    user,
+                    pass,
+                })
+        });
+        if cfg.is_some() {
+            eprintln!("[cannon] box-config geladen aus {}", file.display());
         }
-        AppState(Mutex::new(creds))
+        AppState(Mutex::new(cfg))
     }
 
-    fn store(&self, dir: &PathBuf, creds: &Credentials) {
+    fn store(&self, dir: &PathBuf, cfg: &BoxConfig) {
         let _ = std::fs::create_dir_all(dir);
-        let file = dir.join("credentials.txt");
-        if std::fs::write(&file, format!("{}\n{}\n", creds.user, creds.pass)).is_ok() {
+        let file = dir.join("box.txt");
+        if std::fs::write(
+            &file,
+            format!("{}\n{}\n{}\n", cfg.base_url, cfg.user, cfg.pass),
+        )
+        .is_ok()
+        {
             #[cfg(unix)]
             {
                 use std::os::unix::fs::PermissionsExt;
-                let _ = std::fs::set_permissions(&file, std::fs::Permissions::from_mode(0o600));
+                let _ =
+                    std::fs::set_permissions(&file, std::fs::Permissions::from_mode(0o600));
             }
-            eprintln!("[cannon] credentials gespeichert in {}", file.display());
+            eprintln!("[cannon] box-config gespeichert in {}", file.display());
         }
     }
 }
 
-/// Config + Passwort laden, Default-Box wählen.
+/// Config + Passwort laden, Default-Box wählen (Setup-Overrides anwenden).
 fn setup(state: &AppState) -> Result<(BoxProfile, BTreeMap<String, Host>), String> {
     let conf = ConfigFile::load_default_or_builtin();
-    let creds = state.0.lock().unwrap().clone();
-    let pass = creds
+    let cfg = state.0.lock().unwrap().clone();
+    let pass = cfg
         .as_ref()
         .map(|c| c.pass.clone())
         .or_else(pass::resolve_from_env_or_keyring)
-        .ok_or("kein Box-Passwort — bitte unten eingeben")?;
+        .ok_or("kein Box-Passwort — bitte unten einrichten")?;
     let profiles = conf.build_with_pass(&pass);
     let mut box_ = profiles
         .values()
         .next()
         .cloned()
         .ok_or("keine [boxes.*] in der config")?;
-    if let Some(c) = &creds {
+    if let Some(c) = &cfg {
+        box_.base_url = c.base_url.trim_end_matches('/').to_string();
         box_.user = c.user.clone();
     }
     Ok((box_, conf.hosts()))
 }
 
-/// Default-User der ersten Box (Prefill für das Setup-Feld).
-#[tauri::command]
-fn get_box_user() -> Result<String, String> {
-    let conf = ConfigFile::load_default_or_builtin();
-    conf.boxes
-        .values()
-        .next()
-        .map(|b| b.user.clone())
-        .ok_or_else(|| "keine [boxes.*] in der config".to_string())
+/// Werte zum Vorausfüllen des Setup-Modals (gespeicherte oder config-defaults).
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BoxInfo {
+    base_url: String,
+    user: String,
+    has_saved: bool,
 }
 
 #[tauri::command]
-fn set_credentials(
+fn get_box_info(state: tauri::State<AppState>) -> Result<BoxInfo, String> {
+    let conf = ConfigFile::load_default_or_builtin();
+    let (default_url, default_user) = conf
+        .boxes
+        .values()
+        .next()
+        .map(|b| (b.base_url.clone(), b.user.clone()))
+        .ok_or_else(|| "keine [boxes.*] in der config".to_string())?;
+    if let Some(c) = state.0.lock().unwrap().as_ref() {
+        return Ok(BoxInfo {
+            base_url: c.base_url.clone(),
+            user: c.user.clone(),
+            has_saved: true,
+        });
+    }
+    Ok(BoxInfo {
+        base_url: default_url,
+        user: default_user,
+        has_saved: false,
+    })
+}
+
+#[tauri::command]
+fn set_box_config(
+    base_url: String,
     user: String,
     p: String,
     state: tauri::State<AppState>,
     app: tauri::AppHandle,
 ) -> Result<(), String> {
     use tauri::Manager;
-    let creds = Credentials { user, pass: p };
+    if !base_url.starts_with("http") {
+        return Err("Box-URL muss mit http:// beginnen".into());
+    }
+    let cfg = BoxConfig {
+        base_url: base_url.trim_end_matches('/').to_string(),
+        user,
+        pass: p,
+    };
     let dir = app
         .path()
         .app_data_dir()
         .map_err(|e| format!("app-data-dir: {e}"))?;
-    state.store(&dir, &creds);
-    *state.0.lock().unwrap() = Some(creds);
+    state.store(&dir, &cfg);
+    *state.0.lock().unwrap() = Some(cfg);
     Ok(())
 }
 
@@ -165,8 +206,8 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             get_status,
             wake,
-            set_credentials,
-            get_box_user
+            set_box_config,
+            get_box_info
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

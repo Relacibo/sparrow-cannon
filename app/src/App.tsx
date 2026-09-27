@@ -19,15 +19,18 @@ function App() {
   const [error, setError] = createSignal("");
   const [lastCheck, setLastCheck] = createSignal("");
   const [slow, setSlow] = createSignal(false);
+
+  // Setup-Modal
+  const [showSetup, setShowSetup] = createSignal(false);
+  const [boxUrl, setBoxUrl] = createSignal("");
   const [user, setUser] = createSignal("");
   const [pw, setPw] = createSignal("");
   const [saving, setSaving] = createSignal(false);
-
-  let slowTimer: number | undefined;
+  const [hasSaved, setHasSaved] = createSignal(false);
 
   const refresh = async () => {
     setSlow(false);
-    slowTimer = window.setTimeout(() => setSlow(true), 300);
+    const t = window.setTimeout(() => setSlow(true), 300);
     try {
       setRows(await invoke<Row[]>("get_status"));
       setError("");
@@ -35,7 +38,7 @@ function App() {
     } catch (e) {
       setError(String(e));
     } finally {
-      window.clearTimeout(slowTimer);
+      window.clearTimeout(t);
       setSlow(false);
     }
   };
@@ -58,13 +61,15 @@ function App() {
     }
   };
 
-  const saveCredentials = async () => {
+  const saveBoxConfig = async () => {
     setSaving(true);
     setError("");
     try {
-      await invoke("set_credentials", { user: user(), p: pw() });
+      await invoke("set_box_config", { baseUrl: boxUrl(), user: user(), p: pw() });
+      setHasSaved(true);
       setPw("");
       await refresh();
+      if (rows().length && !error()) setShowSetup(false);
     } catch (e) {
       setError(String(e));
     } finally {
@@ -72,25 +77,30 @@ function App() {
     }
   };
 
+  const openSetup = async () => {
+    try {
+      const info = await invoke<{ baseUrl: string; user: string; hasSaved: boolean }>(
+        "get_box_info"
+      );
+      if (!boxUrl()) setBoxUrl(info.baseUrl);
+      if (!user()) setUser(info.user);
+      setHasSaved(info.hasSaved);
+    } catch (e) {
+      setError(String(e));
+    }
+    setShowSetup(true);
+  };
+
   let timer: number;
   onMount(async () => {
-    try {
-      setUser(await invoke<string>("get_box_user"));
-    } catch {
-      /* ohne config bleibt das Feld leer */
-    }
+    await openSetup();
+    if (!hasSaved()) setShowSetup(true);
     refresh();
     timer = setInterval(() => {
       if (!slow()) refresh();
     }, 10_000);
   });
-  onCleanup(() => {
-    clearInterval(timer);
-    window.clearTimeout(slowTimer);
-  });
-
-  const needsSetup = () =>
-    (error().includes("Passwort") || !rows().length) && !!error();
+  onCleanup(() => clearInterval(timer));
 
   return (
     <div class="mx-auto max-w-[900px] p-5 pb-[max(1.25rem,env(safe-area-inset-bottom))]">
@@ -105,38 +115,16 @@ function App() {
             role="status"
           />
         </Show>
+        <button
+          class="ml-auto rounded-lg border border-line px-3 py-1 text-xs text-muted active:opacity-70"
+          onClick={openSetup}
+        >
+          Box einrichten
+        </button>
       </h1>
 
       <Show when={error()}>
         <div class="mb-3 font-mono text-xs break-all text-err">{error()}</div>
-      </Show>
-
-      <Show when={needsSetup()}>
-        <div class="mb-3 flex flex-wrap gap-2">
-          <input
-            type="text"
-            placeholder="Fritzbox-Benutzer"
-            class="w-44 rounded-lg border border-line bg-card px-3 py-3 text-sm text-fg"
-            value={user()}
-            onInput={(e) => setUser(e.currentTarget.value)}
-            disabled={saving()}
-          />
-          <input
-            type="password"
-            placeholder="Fritzbox-Passwort"
-            class="min-w-0 flex-1 rounded-lg border border-line bg-card px-3 py-3 text-sm text-fg"
-            value={pw()}
-            onInput={(e) => setPw(e.currentTarget.value)}
-            disabled={saving()}
-          />
-          <button
-            class="rounded-lg bg-accent px-5 py-3 text-sm font-semibold text-[#0d1117] active:opacity-70 disabled:opacity-50"
-            disabled={saving() || !pw()}
-            onClick={saveCredentials}
-          >
-            {saving() ? "prüfe…" : "OK"}
-          </button>
-        </div>
       </Show>
 
       <div class="grid grid-cols-1 gap-3.5 sm:grid-cols-2 lg:grid-cols-3">
@@ -176,6 +164,75 @@ function App() {
           <span class="text-err">· Box nicht erreichbar (Timeout?)</span>
         </Show>
       </p>
+
+      {/* Setup-Modal */}
+      <Show when={showSetup()}>
+        <div
+          class="fixed inset-0 z-50 flex items-end justify-center bg-black/60 p-0 sm:items-center sm:p-4"
+          onClick={(e) => {
+            if (e.target === e.currentTarget && hasSaved()) setShowSetup(false);
+          }}
+        >
+          <div class="w-full max-w-sm rounded-t-2xl border border-line bg-bg p-5 sm:rounded-2xl">
+            <div class="mb-3 flex items-center justify-between">
+              <h2 class="font-semibold">Box einrichten</h2>
+              <Show when={hasSaved()}>
+                <button
+                  class="text-xs text-muted active:opacity-70"
+                  onClick={() => setShowSetup(false)}
+                >
+                  später
+                </button>
+              </Show>
+            </div>
+            <Show when={error()}>
+              <div class="mb-3 font-mono text-xs break-all text-err">{error()}</div>
+            </Show>
+            <div class="flex flex-col gap-3">
+              <label class="block">
+                <span class="text-xs text-muted">Box-URL</span>
+                <input
+                  type="text"
+                  class="mt-1 w-full rounded-lg border border-line bg-card px-3 py-3 text-sm text-fg"
+                  placeholder="http://192.168.178.1:49000"
+                  value={boxUrl()}
+                  onInput={(e) => setBoxUrl(e.currentTarget.value)}
+                  disabled={saving()}
+                />
+              </label>
+              <label class="block">
+                <span class="text-xs text-muted">Benutzer</span>
+                <input
+                  type="text"
+                  class="mt-1 w-full rounded-lg border border-line bg-card px-3 py-3 text-sm text-fg"
+                  placeholder="fritz8427"
+                  value={user()}
+                  onInput={(e) => setUser(e.currentTarget.value)}
+                  disabled={saving()}
+                />
+              </label>
+              <label class="block">
+                <span class="text-xs text-muted">Passwort</span>
+                <input
+                  type="password"
+                  class="mt-1 w-full rounded-lg border border-line bg-card px-3 py-3 text-sm text-fg"
+                  placeholder="••••••••"
+                  value={pw()}
+                  onInput={(e) => setPw(e.currentTarget.value)}
+                  disabled={saving()}
+                />
+              </label>
+              <button
+                class="mt-1 rounded-lg bg-accent py-3 text-sm font-semibold text-[#0d1117] active:opacity-70 disabled:opacity-50"
+                disabled={saving() || !pw() || !boxUrl()}
+                onClick={saveBoxConfig}
+              >
+                {saving() ? "prüfe…" : "Speichern & prüfen"}
+              </button>
+            </div>
+          </div>
+        </div>
+      </Show>
     </div>
   );
 }
