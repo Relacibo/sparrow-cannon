@@ -36,41 +36,64 @@ fn config_path(app: &tauri::AppHandle) -> PathBuf {
     }
 }
 
-/// Ergebnisse der Scheduler-Threads für [[widgets]] mit trigger=schedule.
+/// Hintergrund-Ergebnisse: Widget-Statusse (alle 10s bzw. per Intervall)
+/// und SSH-Verbindungstests (alle 60s) — das Frontend liest nur noch Cache.
 struct SchedResults(StdMutex<BTreeMap<String, (String, String)>>);
+struct ConnTests(StdMutex<BTreeMap<String, (bool, String)>>);
 
 fn spawn_scheduler(app: tauri::AppHandle) {
     use tauri::Manager;
     std::thread::spawn(move || {
         let mut last: BTreeMap<String, Instant> = BTreeMap::new();
+        let mut last_conn: Option<Instant> = None;
         loop {
             std::thread::sleep(Duration::from_secs(1));
             let conf = load_conf(&app);
+            let ctx = widgets::Ctx::from_config(&conf, secrets_dir(&app));
+
+            // widget-statusse
             for w in &conf.widgets {
-                if w.trigger.kind != "schedule" || w.trigger.interval_secs == 0 {
-                    continue;
-                }
                 let Some(op) = &w.status else { continue };
+                let interval = if w.trigger.kind == "schedule" && w.trigger.interval_secs > 0 {
+                    w.trigger.interval_secs
+                } else {
+                    10
+                };
                 let now = Instant::now();
                 let due = last
                     .get(&w.id)
-                    .map(|t| now.duration_since(*t) >= Duration::from_secs(w.trigger.interval_secs))
+                    .map(|t| now.duration_since(*t) >= Duration::from_secs(interval))
                     .unwrap_or(true);
                 if !due {
                     continue;
                 }
                 last.insert(w.id.clone(), now);
-                let ctx = widgets::Ctx::from_config(&conf, secrets_dir(&app));
                 let res = widgets::eval_status(op, &ctx);
                 let state = app.state::<SchedResults>();
-                state
-                    .0
-                    .lock()
-                    .unwrap()
-                    .insert(w.id.clone(), res);
+                state.0.lock().unwrap().insert(w.id.clone(), res);
+            }
+
+            // ssh-verbindungstests, langsam im hintergrund
+            let test_due = last_conn
+                .map(|t| now2() - t >= Duration::from_secs(60))
+                .unwrap_or(true);
+            if test_due {
+                last_conn = Some(Instant::now());
+                let state = app.state::<ConnTests>();
+                for (id, c) in &conf.connections.ssh {
+                    let res = match sparrow_cannon_core::ssh::exec(&c.dest, "echo ok") {
+                        Ok(_) => (true, "verbunden".into()),
+                        Err(e) => (false, e.to_string()),
+                    };
+                    state.0.lock().unwrap().insert(id.clone(), res);
+                }
             }
         }
     });
+}
+
+fn now2() -> Instant {
+    Instant::now()
 }
 
 /// Verzeichnis für den Datei-Fallback der Passwörter (nur Android relevant —
@@ -170,7 +193,10 @@ pub struct SshConnInfo {
 /// Alle SSH-Verbindungen mit Connect-Test.
 #[tauri::command]
 fn get_ssh_connections(app: tauri::AppHandle) -> Result<Vec<SshConnInfo>, String> {
+    use tauri::Manager;
     let conf = load_conf(&app);
+    let tests = app.state::<ConnTests>();
+    let cached = tests.0.lock().unwrap().clone();
     let mut out = Vec::new();
     for (id, c) in &conf.connections.ssh {
         let (ok, detail) = match sparrow_cannon_core::ssh::exec(&c.dest, "echo ok") {
@@ -352,22 +378,16 @@ fn get_widgets(app: tauri::AppHandle) -> Result<Vec<WidgetState>, String> {
         .widgets
         .iter()
         .map(|w| {
-            // Schedule-Widgets: Ergebnis aus dem Scheduler-Thread nutzen
-            if w.trigger.kind == "schedule" {
-                if let Some((state, output)) = sched_map.get(&w.id) {
-                    let mut st = widgets::widget_states(std::slice::from_ref(w), &ctx)
-                        .into_iter()
-                        .next()
-                        .unwrap();
-                    st.status_state = state.clone();
-                    st.status_output = output.clone();
-                    return st;
-                }
-            }
-            widgets::widget_states(std::slice::from_ref(w), &ctx)
+            let mut st = widgets::widget_states(std::slice::from_ref(w), &ctx)
                 .into_iter()
                 .next()
-                .unwrap()
+                .unwrap();
+            // Hintergrund-Ergebnis hat Vorrang (Scheduler prüft alle 10s/intervall)
+            if let Some((state, output)) = sched_map.get(&w.id) {
+                st.status_state = state.clone();
+                st.status_output = output.clone();
+            }
+            st
         })
         .collect())
 }
@@ -547,6 +567,7 @@ fn wake(host_id: String, app: tauri::AppHandle) -> Result<(), String> {
 pub fn run() {
     tauri::Builder::default()
         .manage(SchedResults(StdMutex::new(BTreeMap::new())))
+        .manage(ConnTests(StdMutex::new(BTreeMap::new())))
         .setup(|app| {
             let handle = app.handle().clone();
             spawn_scheduler(handle);
