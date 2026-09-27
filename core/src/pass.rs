@@ -98,6 +98,13 @@ pub fn file_store(dir: &Path, box_id: &str, pass: &str) -> bool {
     }
 }
 
+/// Keyring-Eintrag einer Box löschen.
+pub fn delete(box_id: &str) {
+    let _ = Command::new("secret-tool")
+        .args(["clear", "service", SERVICE, "username", box_id])
+        .status();
+}
+
 /// Komfort-Auflösung für Frontends: env → keyring(box_id) → datei-fallback.
 pub fn resolve(box_id: &str, secrets_dir: Option<&Path>) -> Option<String> {
     if let Ok(p) = std::env::var("CANNON_PASS") {

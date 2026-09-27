@@ -155,7 +155,7 @@ fn main() -> anyhow::Result<()> {
                 .iter()
                 .find(|w| w.id == widget)
                 .with_context(|| format!("widget '{widget}' fehlt in der config"))?;
-            let out = sparrow_cannon_core::widgets::fire(w, &ctx)?;
+            let out = sparrow_cannon_core::widgets::fire(w, 0, &ctx)?;
             if !out.is_empty() {
                 println!("{out}");
             }

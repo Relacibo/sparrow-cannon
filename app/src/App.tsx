@@ -10,14 +10,13 @@ type Row = {
   hostname?: string | null;
 };
 
+type ActionBtn = { label: string; when: string; index: number };
 type WidgetRow = {
   id: string;
   title: string;
-  actionState: string;
-  actionOutput: string;
   statusState: string;
   statusOutput: string;
-  hasAction: boolean;
+  buttons: ActionBtn[];
 };
 
 type MethodDef = { kind: string; fields: { key: string; label: string; kind: string; required: boolean }[] };
@@ -27,7 +26,7 @@ type Trigger = { kind: string; interval_secs?: number };
 type WidgetNew = {
   id: string;
   title: string;
-  action: { kind: string; params: Record<string, string> } | null;
+  actions: { label: string; when: string; op: { kind: string; params: Record<string, string> } }[];
   status: { kind: string; params: Record<string, string> } | null;
   trigger: Trigger;
 };
@@ -46,7 +45,7 @@ function App() {
   const [methods, setMethods] = createSignal<MethodDef[]>([]);
   const [sshConns, setSshConns] = createSignal<SshConn[]>([]);
   const [boxConns, setBoxConns] = createSignal<BoxConn[]>([]);
-  const [showConns, setShowConns] = createSignal(false);
+  const [view, setView] = createSignal<"dash" | "conns">("dash");
   const [showAdd, setShowAdd] = createSignal(false);
   const [addTitle, setAddTitle] = createSignal("");
   const [addKind, setAddKind] = createSignal("");
@@ -54,6 +53,7 @@ function App() {
   const [addParams, setAddParams] = createSignal<Record<string, string>>({});
   const [addTrigger, setAddTrigger] = createSignal("manual");
   const [addInterval, setAddInterval] = createSignal("60");
+  const [addWhen, setAddWhen] = createSignal("always");
   const [busy, setBusy] = createSignal("");
   const [error, setError] = createSignal("");
   const [lastCheck, setLastCheck] = createSignal("");
@@ -103,11 +103,11 @@ function App() {
     }
   };
 
-  const fireWidget = async (id: string) => {
+  const fireWidget = async (id: string, index: number) => {
     setBusy(id);
     setError("");
     try {
-      const out = await invoke<string>("fire_widget", { id });
+      const out = await invoke<string>("fire_widget", { id, index });
       if (out) console.log(out);
       await refresh();
     } catch (e) {
@@ -142,7 +142,11 @@ function App() {
       const w: WidgetNew = {
         id,
         title: addTitle(),
-        action: addRole() === "action" ? op : null,
+        action: null,
+        actions:
+          addRole() === "action"
+            ? [{ label: addTitle() || "Feuern", when: addWhen(), op }]
+            : [],
         status: addRole() === "status" ? op : null,
         trigger:
           addTrigger() === "schedule"
@@ -234,8 +238,14 @@ function App() {
           + Karte
         </button>
         <button
-          class="cursor-pointer rounded-lg border border-line px-3 py-1 text-xs text-muted transition hover:border-muted hover:text-fg active:opacity-70"
-          onClick={() => setShowConns(!showConns())}
+          class={`cursor-pointer rounded-lg border px-3 py-1 text-xs transition active:opacity-70 ${view() === "dash" ? "border-accent text-accent" : "border-line text-muted hover:border-muted hover:text-fg"}`}
+          onClick={() => setView("dash")}
+        >
+          Karten
+        </button>
+        <button
+          class={`cursor-pointer rounded-lg border px-3 py-1 text-xs transition active:opacity-70 ${view() === "conns" ? "border-accent text-accent" : "border-line text-muted hover:border-muted hover:text-fg"}`}
+          onClick={() => setView("conns")}
         >
           Verbindungen
         </button>
@@ -251,41 +261,7 @@ function App() {
         <div class="mb-3 font-mono text-xs break-all text-err">{error()}</div>
       </Show>
 
-      <Show when={showConns()}>
-        <div class="mb-3 rounded-xl border border-line bg-card p-4">
-          <h2 class="mb-2 text-sm font-semibold text-muted">verbindungen</h2>
-          <div class="text-xs text-muted">
-            <div class="mb-1 mt-1 font-semibold">fritzbox</div>
-            <For each={boxConns()}>
-              {(c) => (
-                <div class="flex items-center gap-2 py-0.5">
-                  <span class={`size-2 rounded-full ${c.hasSecret ? "bg-up" : "bg-err"}`} />
-                  <span>{c.id}</span>
-                  <span class="font-mono">{c.baseUrl}</span>
-                  <span class="ml-auto">{c.hasSecret ? "passwort ok" : "kein passwort"}</span>
-                </div>
-              )}
-            </For>
-            <div class="mb-1 mt-3 font-semibold">ssh</div>
-            <For each={sshConns()}>
-              {(c) => (
-                <div class="flex items-center gap-2 py-0.5">
-                  <span class={`size-2 rounded-full ${c.ok ? "bg-up" : "bg-err"}`} />
-                  <span>{c.id}</span>
-                  <span class="font-mono">{c.dest}</span>
-                  <span class="ml-auto max-w-[45%] truncate" title={c.detail}>
-                    {c.ok ? "verbunden" : c.detail}
-                  </span>
-                </div>
-              )}
-            </For>
-            <div class="mt-2 text-[10px] opacity-70">
-              neue verbindungen: in der config unter [connections.ssh.id] (android: russh folgt)
-            </div>
-          </div>
-        </div>
-      </Show>
-
+      <Show when={view() === "dash"}>
       <div class="grid grid-cols-1 gap-3.5 sm:grid-cols-2 lg:grid-cols-3">
         <For each={rows()}>
           {(r) => (
@@ -347,20 +323,117 @@ function App() {
                   {w.statusOutput.split("\n")[0] || w.statusState}
                 </div>
                 <Show
-                  when={w.hasAction}
+                  when={w.buttons.length}
                   fallback={<div class="py-1 text-center text-xs text-muted">{w.statusState}</div>}
                 >
-                  <button
-                    disabled={busy() === w.id}
-                    onClick={() => fireWidget(w.id)}
-                    class="cursor-pointer rounded-lg bg-accent py-3 text-sm font-semibold text-[#0d1117] transition hover:brightness-110 active:opacity-80 disabled:cursor-default disabled:opacity-60"
-                  >
-                    {busy() === w.id ? "… feuert" : "Feuern"}
-                  </button>
+                  <div class="flex flex-col gap-2">
+                    <For each={w.buttons}>
+                      {(b) => (
+                        <button
+                          disabled={busy() === w.id}
+                          onClick={() => fireWidget(w.id, b.index)}
+                          class="cursor-pointer rounded-lg bg-accent py-3 text-sm font-semibold text-[#0d1117] transition hover:brightness-110 active:opacity-80 disabled:cursor-default disabled:opacity-60"
+                        >
+                          {busy() === w.id ? "… feuert" : b.label}
+                        </button>
+                      )}
+                    </For>
+                  </div>
                 </Show>
               </div>
             )}
           </For>
+        </div>
+      </Show>
+      </Show>
+
+      <Show when={view() === "conns"}>
+        <div class="flex flex-col gap-5">
+          <section class="rounded-xl border border-line bg-card p-4">
+            <h2 class="mb-2 text-sm font-semibold text-muted">ssh-verbindungen</h2>
+            <For each={sshConns()}>
+              {(c) => (
+                <div class="flex items-center gap-2 py-1 text-xs">
+                  <span class={`size-2 rounded-full ${c.ok ? "bg-up" : "bg-err"}`} />
+                  <span class="font-semibold">{c.id}</span>
+                  <span class="font-mono">{c.dest}</span>
+                  <span class="ml-auto max-w-[40%] truncate text-muted" title={c.detail}>
+                    {c.ok ? "verbunden" : c.detail}
+                  </span>
+                  <button
+                    class="cursor-pointer text-muted transition hover:text-down"
+                    onClick={() => invoke("remove_ssh_conn", { id: c.id }).then(refresh)}
+                  >
+                    ✕
+                  </button>
+                </div>
+              )}
+            </For>
+            <form
+              class="mt-3 flex flex-wrap gap-2"
+              onSubmit={(e) => {
+                e.preventDefault();
+                const f = e.currentTarget as HTMLFormElement;
+                const id = (f.elements.namedItem("id") as HTMLInputElement).value;
+                const dest = (f.elements.namedItem("dest") as HTMLInputElement).value;
+                const note = (f.elements.namedItem("note") as HTMLInputElement).value;
+                invoke("upsert_ssh_conn", { id, dest, note }).then(() => {
+                  f.reset();
+                  refresh();
+                });
+              }}
+            >
+              <input name="id" required placeholder="id" class="w-24 rounded-lg border border-line bg-bg px-2 py-2 text-xs text-fg" />
+              <input name="dest" required placeholder="ziel (user@host / alias)" class="min-w-0 flex-1 rounded-lg border border-line bg-bg px-2 py-2 text-xs text-fg" />
+              <input name="note" placeholder="notiz" class="w-32 rounded-lg border border-line bg-bg px-2 py-2 text-xs text-fg" />
+              <button class="cursor-pointer rounded-lg bg-accent px-4 py-2 text-xs font-semibold text-[#0d1117] hover:brightness-110">speichern</button>
+            </form>
+          </section>
+
+          <section class="rounded-xl border border-line bg-card p-4">
+            <h2 class="mb-2 text-sm font-semibold text-muted">fritzbox-verbindungen</h2>
+            <For each={boxConns()}>
+              {(c) => (
+                <div class="flex items-center gap-2 py-1 text-xs">
+                  <span class={`size-2 rounded-full ${c.hasSecret ? "bg-up" : "bg-err"}`} />
+                  <span class="font-semibold">{c.id}</span>
+                  <span class="font-mono">{c.baseUrl}</span>
+                  <span class="text-muted">{c.user}</span>
+                  <span class="ml-auto text-muted">{c.hasSecret ? "passwort ok" : "kein passwort"}</span>
+                  <button
+                    class="cursor-pointer text-muted transition hover:text-down"
+                    onClick={() => invoke("remove_box_conn", { id: c.id }).then(refresh)}
+                  >
+                    ✕
+                  </button>
+                </div>
+              )}
+            </For>
+            <form
+              class="mt-3 flex flex-wrap gap-2"
+              onSubmit={(e) => {
+                e.preventDefault();
+                const f = e.currentTarget as HTMLFormElement;
+                const id = (f.elements.namedItem("id") as HTMLInputElement).value;
+                const baseUrl = (f.elements.namedItem("baseUrl") as HTMLInputElement).value;
+                const user = (f.elements.namedItem("user") as HTMLInputElement).value;
+                const pass = (f.elements.namedItem("pass") as HTMLInputElement).value;
+                invoke("upsert_box_conn", { id, baseUrl, user, pass }).then(() => {
+                  f.reset();
+                  refresh();
+                });
+              }}
+            >
+              <input name="id" required placeholder="id" class="w-24 rounded-lg border border-line bg-bg px-2 py-2 text-xs text-fg" />
+              <input name="baseUrl" required placeholder="http://192.168.178.1:49000" class="min-w-0 flex-1 rounded-lg border border-line bg-bg px-2 py-2 text-xs text-fg" />
+              <input name="user" required placeholder="benutzer" class="w-28 rounded-lg border border-line bg-bg px-2 py-2 text-xs text-fg" />
+              <input name="pass" type="password" placeholder="passwort (leer=behalten)" class="w-36 rounded-lg border border-line bg-bg px-2 py-2 text-xs text-fg" />
+              <button class="cursor-pointer rounded-lg bg-accent px-4 py-2 text-xs font-semibold text-[#0d1117] hover:brightness-110">speichern</button>
+            </form>
+          </section>
+          <p class="text-[10px] text-muted opacity-70">
+            android (phase 3): ssh über russh mit in-app-key statt system-ssh
+          </p>
         </div>
       </Show>
 
@@ -557,6 +630,20 @@ function App() {
                     value={addInterval()}
                     onInput={(e) => setAddInterval(e.currentTarget.value)}
                   />
+                </label>
+              </Show>
+              <Show when={addRole() === "action"}>
+                <label class="block">
+                  <span class="text-xs text-muted">Button zeigen</span>
+                  <select
+                    class="mt-1 w-full rounded-lg border border-line bg-card px-3 py-3 text-sm text-fg"
+                    value={addWhen()}
+                    onChange={(e) => setAddWhen(e.currentTarget.value)}
+                  >
+                    <option value="always">immer</option>
+                    <option value="ok">nur wenn Status OK (an)</option>
+                    <option value="fail">nur wenn Status FAIL (aus)</option>
+                  </select>
                 </label>
               </Show>
               <button

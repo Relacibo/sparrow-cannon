@@ -194,6 +194,67 @@ fn get_box_connections(app: tauri::AppHandle) -> Result<Vec<BoxConnInfo>, String
 }
 
 #[tauri::command]
+fn upsert_ssh_conn(
+    id: String,
+    dest: String,
+    note: String,
+    app: tauri::AppHandle,
+) -> Result<(), String> {
+    let path = config_path(&app);
+    let mut conf = ConfigFile::load_from(path.clone()).unwrap_or_else(|_| ConfigFile::builtin());
+    conf.connections.ssh.insert(
+        id,
+        sparrow_cannon_core::config::SshConn {
+            dest: dest.trim_end_matches('/').to_string(),
+            note,
+        },
+    );
+    conf.save_to(&path).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn remove_ssh_conn(id: String, app: tauri::AppHandle) -> Result<(), String> {
+    let path = config_path(&app);
+    let mut conf = ConfigFile::load_from(path.clone()).unwrap_or_else(|_| ConfigFile::builtin());
+    conf.connections.ssh.remove(&id);
+    conf.save_to(&path).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn upsert_box_conn(
+    id: String,
+    base_url: String,
+    user: String,
+    pass: String,
+    app: tauri::AppHandle,
+) -> Result<(), String> {
+    let path = config_path(&app);
+    let mut conf = ConfigFile::load_from(path.clone()).unwrap_or_else(|_| ConfigFile::builtin());
+    conf.boxes.insert(
+        id.clone(),
+        sparrow_cannon_core::config::BoxFile {
+            base_url: base_url.trim_end_matches('/').to_string(),
+            user,
+        },
+    );
+    conf.save_to(&path).map_err(|e| e.to_string())?;
+    if !pass.is_empty() {
+        sparrow_cannon_core::pass::store(&id, &pass, secrets_dir(&app).as_deref());
+    }
+    Ok(())
+}
+
+#[tauri::command]
+fn remove_box_conn(id: String, app: tauri::AppHandle) -> Result<(), String> {
+    let path = config_path(&app);
+    let mut conf = ConfigFile::load_from(path.clone()).unwrap_or_else(|_| ConfigFile::builtin());
+    conf.boxes.remove(&id);
+    conf.save_to(&path).map_err(|e| e.to_string())?;
+    sparrow_cannon_core::pass::delete(&id);
+    Ok(())
+}
+
+#[tauri::command]
 fn get_widgets(app: tauri::AppHandle) -> Result<Vec<WidgetState>, String> {
     let conf = load_conf(&app);
     let ctx = widgets::Ctx::from_config(&conf, secrets_dir(&app));
@@ -201,7 +262,7 @@ fn get_widgets(app: tauri::AppHandle) -> Result<Vec<WidgetState>, String> {
 }
 
 #[tauri::command]
-fn fire_widget(id: String, app: tauri::AppHandle) -> Result<String, String> {
+fn fire_widget(id: String, index: usize, app: tauri::AppHandle) -> Result<String, String> {
     let conf = load_conf(&app);
     let ctx = widgets::Ctx::from_config(&conf, secrets_dir(&app));
     let w = conf
@@ -210,7 +271,7 @@ fn fire_widget(id: String, app: tauri::AppHandle) -> Result<String, String> {
         .find(|w| w.id == id)
         .cloned()
         .ok_or(format!("widget '{id}' fehlt"))?;
-    widgets::fire(&w, &ctx).map_err(|e| e.to_string())
+    widgets::fire(&w, index, &ctx).map_err(|e| e.to_string())
 }
 
 /// Param-Schema der Registry für den "+"-Dialog.
@@ -385,7 +446,11 @@ pub fn run() {
             add_widget,
             remove_widget,
             get_ssh_connections,
-            get_box_connections
+            get_box_connections,
+            upsert_ssh_conn,
+            remove_ssh_conn,
+            upsert_box_conn,
+            remove_box_conn
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

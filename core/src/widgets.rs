@@ -99,18 +99,32 @@ impl Params {
     }
 }
 
-/// Ein Kartenelement: Action, Status, beides oder keines.
+/// Ein Kartenelement: Status + bedingte Actions + Trigger.
 #[derive(Debug, Clone, Default, Deserialize, Serialize)]
 pub struct Widget {
     pub id: String,
     #[serde(default)]
     pub title: String,
     #[serde(default)]
+    pub status: Option<Op>,
+    /// Buttons mit Bedingung: when = always | ok | fail
+    #[serde(default)]
+    pub actions: Vec<CondAction>,
+    /// Legacy (einzelner unbedingter Button) — wird als "always" behandelt.
+    #[serde(default)]
     pub action: Option<Op>,
     #[serde(default)]
-    pub status: Option<Op>,
-    #[serde(default)]
     pub trigger: Trigger,
+}
+
+/// Ein bedingter Button: erscheint, wenn der Status `when` erfüllt.
+#[derive(Debug, Clone, Default, Deserialize, Serialize)]
+pub struct CondAction {
+    pub label: String,
+    /// always | ok | fail
+    #[serde(default)]
+    pub when: String,
+    pub op: Op,
 }
 
 /// Eine auszuführende/auswertbare Operation.
@@ -134,16 +148,22 @@ pub struct Trigger {
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
+pub struct ActionBtn {
+    pub label: String,
+    pub when: String,
+    pub index: usize,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct WidgetState {
     pub id: String,
     pub title: String,
-    /// Action-Teil: OK (gefeuert) | ERR | IDLE
-    pub action_state: String,
-    pub action_output: String,
     /// Status-Teil: OK | FAIL | ERR | IDLE
     pub status_state: String,
     pub status_output: String,
-    pub has_action: bool,
+    /// Buttons, deren Bedingung aktuell erfüllt ist.
+    pub buttons: Vec<ActionBtn>,
 }
 
 /// Registry: alle Methoden mit ihrem Param-Schema (UI generiert Formulare daraus).
@@ -256,7 +276,7 @@ fn eval(op: &Op, ctx: &Ctx) -> (String, String) {
     }
 }
 
-/// States aller Widgets (Status-Teil live, Action-Teil zuletzt gefeuert).
+/// States aller Widgets: Status live, Buttons nach Bedingung gefiltert.
 pub fn widget_states(widgets: &[Widget], ctx: &Ctx) -> Vec<WidgetState> {
     widgets
         .iter()
@@ -265,6 +285,33 @@ pub fn widget_states(widgets: &[Widget], ctx: &Ctx) -> Vec<WidgetState> {
                 Some(op) => eval(op, ctx),
                 None => ("IDLE".into(), String::new()),
             };
+            // Legacy action-Feld als always-Button vorne anstellen
+            let mut actions: Vec<CondAction> = Vec::new();
+            if let Some(op) = &w.action {
+                actions.push(CondAction {
+                    label: "Ausführen".into(),
+                    when: "always".into(),
+                    op: op.clone(),
+                });
+            }
+            actions.extend(w.actions.iter().cloned());
+
+            let buttons: Vec<ActionBtn> = actions
+                .iter()
+                .enumerate()
+                .filter(|(_, a)| match (a.when.as_str(), status_state.as_str()) {
+                    ("ok", "OK") => true,
+                    ("fail", "FAIL" | "ERR") => true,
+                    ("always", _) => true,
+                    _ => false,
+                })
+                .map(|(i, a)| ActionBtn {
+                    label: a.label.clone(),
+                    when: a.when.clone(),
+                    index: i,
+                })
+                .collect();
+
             WidgetState {
                 id: w.id.clone(),
                 title: if w.title.is_empty() {
@@ -272,20 +319,27 @@ pub fn widget_states(widgets: &[Widget], ctx: &Ctx) -> Vec<WidgetState> {
                 } else {
                     w.title.clone()
                 },
-                action_state: "IDLE".into(),
-                action_output: String::new(),
                 status_state,
                 status_output,
-                has_action: w.action.is_some(),
+                buttons,
             }
         })
         .collect()
 }
 
-/// Action-Teil eines Widgets feuern.
-pub fn fire(w: &Widget, ctx: &Ctx) -> anyhow::Result<String> {
-    let Some(op) = &w.action else {
-        anyhow::bail!("widget '{}' hat keine action", w.id);
-    };
-    execute(op, ctx)
+/// Bedingten Button (Index in der Action-Liste) feuern.
+pub fn fire(w: &Widget, index: usize, ctx: &Ctx) -> anyhow::Result<String> {
+    let mut actions: Vec<CondAction> = Vec::new();
+    if let Some(op) = &w.action {
+        actions.push(CondAction {
+            label: "Ausführen".into(),
+            when: "always".into(),
+            op: op.clone(),
+        });
+    }
+    actions.extend(w.actions.iter().cloned());
+    let a = actions
+        .get(index)
+        .ok_or_else(|| anyhow::anyhow!("button {index} existiert nicht"))?;
+    execute(&a.op, ctx)
 }
