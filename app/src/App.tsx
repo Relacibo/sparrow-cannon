@@ -45,6 +45,7 @@ function App() {
   const [wids, setWids] = createSignal<WidgetRow[]>([]);
   const [sshConns, setSshConns] = createSignal<SshConn[]>([]);
   const [boxConns, setBoxConns] = createSignal<BoxConn[]>([]);
+  const [pubkey, setPubkey] = createSignal("");
   const [busy, setBusy] = createSignal("");
   const [error, setError] = createSignal("");
   const [lastCheck, setLastCheck] = createSignal("");

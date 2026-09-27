@@ -264,6 +264,12 @@ fn remove_box_conn(id: String, app: tauri::AppHandle) -> Result<(), String> {
     Ok(())
 }
 
+/// JS-Fehler landen im journal (statt still im WebView-Console).
+#[tauri::command]
+fn js_log(msg: String) {
+    eprintln!("[cannon-js] {msg}");
+}
+
 #[tauri::command]
 fn get_widgets(app: tauri::AppHandle) -> Result<Vec<WidgetState>, String> {
     let conf = load_conf(&app);
@@ -453,6 +459,7 @@ pub fn run() {
             get_widgets,
             fire_widget,
             get_methods,
+            js_log,
             add_widget,
             remove_widget,
             get_ssh_connections,
