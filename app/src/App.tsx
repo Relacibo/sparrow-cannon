@@ -767,7 +767,7 @@ function App() {
             if (e.target === e.currentTarget) setShowSsh(false);
           }}
         >
-          <div class="w-full max-w-sm rounded-t-2xl border border-line bg-bg p-5 sm:rounded-2xl">
+          <div class="max-h-[94dvh] w-full max-w-sm overflow-y-auto overscroll-contain rounded-t-2xl border border-line bg-bg p-5 sm:max-h-[86vh] sm:rounded-2xl">
             <div class="mb-3 flex items-center justify-between">
               <h2 class="font-semibold">SSH-Verbindung</h2>
               <button
@@ -812,7 +812,7 @@ function App() {
             if (e.target === e.currentTarget) setShowBox(false);
           }}
         >
-          <div class="w-full max-w-sm rounded-t-2xl border border-line bg-bg p-5 sm:rounded-2xl">
+          <div class="max-h-[94dvh] w-full max-w-sm overflow-y-auto overscroll-contain rounded-t-2xl border border-line bg-bg p-5 sm:max-h-[86vh] sm:rounded-2xl">
             <div class="mb-3 flex items-center justify-between">
               <h2 class="font-semibold">Fritzbox-Verbindung</h2>
               <button
@@ -857,7 +857,7 @@ function App() {
             if (e.target === e.currentTarget) setShowAdd(false);
           }}
         >
-          <div class="w-full max-w-sm rounded-t-2xl border border-line bg-bg p-5 sm:rounded-2xl">
+          <div class="max-h-[94dvh] w-full max-w-sm overflow-y-auto overscroll-contain rounded-t-2xl border border-line bg-bg p-5 sm:max-h-[86vh] sm:rounded-2xl">
             <div class="mb-3 flex items-center justify-between">
               <h2 class="font-semibold">
                 {editingDef() ? "Karte bearbeiten" : "Neue Karte"}
