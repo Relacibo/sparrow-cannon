@@ -524,6 +524,9 @@ async fn update_widget(widget: Widget, app: tauri::AppHandle) -> Result<(), Stri
             let Some(i) = conf.widgets.iter().position(|w| w.id == widget.id) else {
                 return Err(format!("widget '{}' fehlt", widget.id));
             };
+            if widget.action.is_none() && widget.actions.is_empty() && widget.status.is_none() {
+                return Err("widget braucht action oder status".into());
+            }
             conf.widgets[i] = widget;
             conf.save_to(&path).map_err(|e| e.to_string())
         })();
@@ -703,7 +706,7 @@ async fn add_widget(widget: Widget, app: tauri::AppHandle) -> Result<(), String>
             if conf.widgets.iter().any(|w| w.id == widget.id) {
                 return Err(format!("widget-id '{}' existiert schon", widget.id));
             }
-            if widget.action.is_none() && widget.status.is_none() {
+            if widget.action.is_none() && widget.actions.is_empty() && widget.status.is_none() {
                 return Err("widget braucht action oder status".into());
             }
             conf.widgets.push(widget);
