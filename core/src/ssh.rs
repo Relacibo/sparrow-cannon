@@ -49,7 +49,7 @@ fn system_ssh(dest: &str, cmd: &str) -> anyhow::Result<String> {
             "-o",
             "ControlMaster=auto",
             "-o",
-            "ControlPath=/home/reinhard/.ssh/cannon-mux-%r@%h:%p",
+            "ControlPath=%d/.ssh/cannon-mux-%r@%h:%p",
             "-o",
             "ControlPersist=10m",
             dest,
