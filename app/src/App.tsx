@@ -430,7 +430,7 @@ function App() {
           </button>
           <Show when={edit()}>
             <button
-              class="cursor-pointer rounded-lg border border-accent px-3 py-1.5 text-xs font-semibold text-accent transition hover:brightness-110 active:opacity-80"
+              class="cursor-pointer rounded-lg border border-accent px-3 py-1.5 text-xs font-semibold text-accent transition hover:bg-accent/10 active:opacity-80"
               onClick={openAdd}
             >
               <FiPlus size={12} class="inline" /> Neue Karte
@@ -465,7 +465,7 @@ function App() {
                 <button
                   disabled={busy() === r.id || r.state === "UP"}
                   onClick={() => wake(r.id)}
-                  class="cursor-pointer rounded-lg bg-accent py-3 text-sm font-semibold text-[#0d1117] transition hover:brightness-110 active:opacity-80 disabled:cursor-default disabled:opacity-60"
+                  class="cursor-pointer rounded-lg bg-accent py-3 text-sm font-semibold text-[#0d1117] transition hover:bg-accent/80 active:opacity-80 disabled:cursor-default disabled:opacity-60"
                 >
                   {busy() === r.id ? "wird geweckt…" : r.state === "UP" ? "läuft" : "Wake"}
                 </button>
@@ -563,7 +563,7 @@ function App() {
                             <button
                               disabled={busy() === w.id}
                               onClick={() => fireWidget(w.id, b.index)}
-                              class="cursor-pointer rounded-lg bg-accent py-3 text-sm font-semibold text-[#0d1117] transition hover:brightness-110 active:opacity-80 disabled:cursor-default disabled:opacity-60"
+                              class="cursor-pointer rounded-lg bg-accent py-3 text-sm font-semibold text-[#0d1117] transition hover:bg-accent/80 active:opacity-80 disabled:cursor-default disabled:opacity-60"
                             >
                               {busy() === w.id ? "… feuert" : b.label}
                             </button>
@@ -795,7 +795,7 @@ function App() {
                 <input name="note" class="mt-1 w-full rounded-lg border border-line bg-card px-3 py-3 text-sm text-fg" />
               </label>
               <button
-                class="mt-1 cursor-pointer rounded-lg bg-accent py-3 text-sm font-semibold text-[#0d1117] transition hover:brightness-110 active:opacity-80"
+                class="mt-1 cursor-pointer rounded-lg bg-accent py-3 text-sm font-semibold text-[#0d1117] transition hover:bg-accent/80 active:opacity-80"
               >
                 Speichern
               </button>
@@ -840,7 +840,7 @@ function App() {
                 <input name="pass" type="password" placeholder="leer = bestehendes behalten" class="mt-1 w-full rounded-lg border border-line bg-card px-3 py-3 text-sm text-fg" />
               </label>
               <button
-                class="mt-1 cursor-pointer rounded-lg bg-accent py-3 text-sm font-semibold text-[#0d1117] transition hover:brightness-110 active:opacity-80"
+                class="mt-1 cursor-pointer rounded-lg bg-accent py-3 text-sm font-semibold text-[#0d1117] transition hover:bg-accent/80 active:opacity-80"
               >
                 Speichern
               </button>
@@ -941,7 +941,7 @@ function App() {
                 <div class="flex items-center justify-between">
                   <span class="text-xs font-medium">Buttons ({addRows.length})</span>
                   <button
-                    class="cursor-pointer text-xs text-accent transition hover:brightness-110"
+                    class="cursor-pointer text-xs text-accent transition hover:underline"
                     onClick={() =>
                       setAddRows([
                         ...addRows,
@@ -1016,7 +1016,7 @@ function App() {
                 </For>
               </div>
               <button
-                class="mt-1 cursor-pointer rounded-lg bg-accent py-3 text-sm font-semibold text-[#0d1117] transition hover:brightness-110 active:opacity-80 disabled:cursor-not-allowed disabled:opacity-50"
+                class="mt-1 cursor-pointer rounded-lg bg-accent py-3 text-sm font-semibold text-[#0d1117] transition hover:bg-accent/80 active:opacity-80 disabled:cursor-not-allowed disabled:opacity-50"
                 disabled={saving() || (!addStatusKind() && addRows.length === 0)}
                 onClick={saveWidget}
               >
