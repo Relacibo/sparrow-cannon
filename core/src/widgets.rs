@@ -140,7 +140,8 @@ pub struct Widget {
     pub pausable: bool,
     #[serde(default)]
     pub status: Option<Op>,
-    /// Buttons mit Bedingung: when = always | ok | fail
+    /// Buttons mit Bedingung: when = always | ok | fail | <text>
+    /// (<text>: Button sichtbar, wenn der Status-Output ihn enthält)
     #[serde(default)]
     pub actions: Vec<CondAction>,
     /// Legacy (einzelner unbedingter Button) — wird als "always" behandelt.
@@ -412,11 +413,14 @@ pub fn widget_states(widgets: &[Widget], ctx: &Ctx) -> Vec<WidgetState> {
                 .iter()
                 .enumerate()
                 .filter(|(_, a)| {
-                    w.status_paused
-                        || matches!(
-                            (a.when.as_str(), status_state.as_str()),
-                            ("ok", "OK") | ("fail", "FAIL" | "ERR") | ("always", _)
-                        )
+                    let when = a.when.trim().to_lowercase();
+                    let visible = match when.as_str() {
+                        "always" | "" => true,
+                        "ok" => status_state == "OK",
+                        "fail" => status_state == "FAIL" || status_state == "ERR",
+                        needle => status_output.to_lowercase().contains(needle),
+                    };
+                    w.status_paused || visible
                 })
                 .map(|(i, a)| ActionBtn {
                     label: a.label.clone(),

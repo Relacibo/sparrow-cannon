@@ -1,4 +1,5 @@
 import { createSignal, For, onCleanup, onMount, Show } from "solid-js";
+import { createStore } from "solid-js/store";
 import { FiCheck, FiCopy, FiEdit2, FiKey, FiMenu, FiPause, FiPlay, FiPlus, FiRefreshCw, FiTrash2, FiX } from "solid-icons/fi";
 import { invoke } from "@tauri-apps/api/core";
 
@@ -51,7 +52,17 @@ type WidgetNew = {
   status: { kind: string; params: Record<string, string> } | null;
   trigger: Trigger;
   pausable: boolean;
+  status_paused?: boolean;
+  disabled?: boolean;
 };
+type ActionRow = {
+  label: string;
+  when: string;
+  custom: string;
+  kind: string;
+  params: Record<string, string>;
+};
+const KNOWN_WHEN = ["always", "ok", "fail", "", "custom"];
 
 const dotColor = (s: Row["state"]) =>
   s === "UP" ? "bg-up" : s === "DOWN" ? "bg-down" : "bg-err";
@@ -84,15 +95,15 @@ function App() {
   const [showSsh, setShowSsh] = createSignal(false);
   const [showBox, setShowBox] = createSignal(false);
   const [addTitle, setAddTitle] = createSignal("");
-  const [addKind, setAddKind] = createSignal("");
-  const [addRole, setAddRole] = createSignal<"action" | "status">("action");
-  const [addParams, setAddParams] = createSignal<Record<string, string>>({});
+  const [addStatusOn, setAddStatusOn] = createSignal(false);
+  const [addStatusKind, setAddStatusKind] = createSignal("");
+  const [addStatusParams, setAddStatusParams] = createSignal<Record<string, string>>({});
   const [addTrigger, setAddTrigger] = createSignal("manual");
   const [addInterval, setAddInterval] = createSignal("60");
-  const [addWhen, setAddWhen] = createSignal("always");
   const [addPausable, setAddPausable] = createSignal(true);
   const [editingDef, setEditingDef] = createSignal<WidgetDef | null>(null);
   const [addStart, setAddStart] = createSignal(false);
+  const [addRows, setAddRows] = createStore<ActionRow[]>([]);
   const [saving, setSaving] = createSignal(false);
 
   const refresh = async () => {
@@ -155,10 +166,14 @@ function App() {
     }
     setEditingDef(null);
     setAddTitle("");
-    setAddKind("");
-    setAddParams({});
-    setAddWhen("always");
+    setAddStatusOn(false);
+    setAddStatusKind("");
+    setAddStatusParams({});
+    setAddRows([]);
     setAddPausable(true);
+    setAddStart(false);
+    setAddTrigger("manual");
+    setAddInterval("60");
     setShowAdd(true);
   };
 
@@ -170,23 +185,22 @@ function App() {
     }
     setEditingDef(def);
     setAddTitle(def.title);
+    setAddStatusOn(!!def.status);
+    setAddStatusKind(def.status?.kind ?? "");
+    setAddStatusParams(def.status ? { ...def.status.params } : {});
     setAddPausable(def.pausable);
+    setAddStart(!def.status_paused);
     setAddTrigger(def.trigger.kind === "schedule" ? "schedule" : "manual");
     setAddInterval(String(def.trigger.interval_secs || 60));
-    if (def.status) {
-      setAddRole("status");
-      setAddKind(def.status.kind);
-      setAddParams({ ...def.status.params });
-      setAddStart(!def.status_paused);
-    } else if (def.actions.length) {
-      const first = def.actions[0];
-      setAddRole("action");
-      setAddKind(first.op.kind);
-      setAddParams({ ...first.op.params });
-      setAddWhen(first.when);
-      setAddTitle(def.title || first.label);
-      setAddStart(true);
-    }
+    setAddRows(
+      def.actions.map((a) => ({
+        label: a.label,
+        when: KNOWN_WHEN.includes(a.when) ? a.when || "always" : "custom",
+        custom: KNOWN_WHEN.includes(a.when) ? "" : a.when,
+        kind: a.op.kind,
+        params: { ...a.op.params },
+      })),
+    );
     setShowAdd(true);
   };
 
@@ -194,29 +208,35 @@ function App() {
     setSaving(true);
     setError("");
     try {
-      const id = (addTitle() || addKind())
-        .toLowerCase()
-        .replace(/[^a-z0-9]+/g, "-")
-        .replace(/^-|-$/g, "");
+      const editDef = editingDef();
+      const id = editDef
+        ? editDef.id
+        : (addTitle() || "karte")
+            .toLowerCase()
+            .replace(/[^a-z0-9]+/g, "-")
+            .replace(/^-|-$/g, "");
       if (!id) throw "titel nötig";
-      const op = { kind: addKind(), params: addParams() };
       const w: WidgetNew = {
         id,
         title: addTitle(),
-        action: null,
-        actions:
-          addRole() === "action"
-            ? [{ label: addTitle() || "Feuern", when: addWhen(), op }]
-            : [],
-        status: addRole() === "status" ? op : null,
-        status_paused: addRole() === "status" && !addStart(),
-        pausable: addRole() === "status" && addPausable(),
+        disabled: editDef?.disabled ?? false,
+        actions: addRows.map((r) => ({
+          label: r.label || "Feuern",
+          when: r.when === "custom" ? r.custom.trim() || "always" : r.when,
+          op: { kind: r.kind, params: { ...r.params } },
+        })),
+        status:
+          addStatusOn() && addStatusKind()
+            ? { kind: addStatusKind(), params: { ...addStatusParams() } }
+            : null,
+        status_paused: addStatusOn() && !addStart(),
+        pausable: addStatusOn() && addPausable(),
         trigger:
           addTrigger() === "schedule"
             ? { kind: "schedule", interval_secs: Number(addInterval()) || 60 }
             : { kind: "manual" },
       };
-      await invoke("add_widget", { widget: w });
+      await invoke(editDef ? "update_widget" : "add_widget", { widget: w });
       setShowAdd(false);
       await refresh();
     } catch (e) {
@@ -225,6 +245,76 @@ function App() {
       setSaving(false);
     }
   };
+
+  const opFields = (
+    kind: () => string,
+    params: () => Record<string, string>,
+    onKind: (k: string) => void,
+    onParam: (k: string, v: string) => void,
+    isStatus: boolean,
+  ) => (
+    <>
+      <label class="block">
+        <span class="text-xs text-muted">Methode</span>
+        <select
+          class="mt-1 w-full rounded-lg border border-line bg-card px-3 py-3 text-sm text-fg"
+          value={kind()}
+          onChange={(e) => onKind(e.currentTarget.value)}
+        >
+          <option value="">– wählen –</option>
+          <For each={methods()}>{(m) => <option value={m.kind}>{m.kind}</option>}</For>
+        </select>
+      </label>
+      <For
+        each={(methods().find((m) => m.kind === kind())?.fields ?? []).filter(
+          (f) => isStatus || f.key !== "ok_contains",
+        )}
+      >
+        {(f) => (
+          <label class="block">
+            <span class="text-xs text-muted">
+              {f.label}
+              {f.required ? " *" : ""}
+            </span>
+            <Show
+              when={f.kind === "ssh-conn"}
+              fallback={
+                <Show
+                  when={f.key === "cmd" || f.key === "extra_cmd"}
+                  fallback={
+                    <input
+                      type="text"
+                      placeholder={f.kind === "mac" ? "aa:bb:cc:dd:ee:ff" : ""}
+                      class="mt-1 w-full rounded-lg border border-line bg-card px-3 py-3 text-sm text-fg"
+                      value={params()[f.key] ?? ""}
+                      onInput={(e) => onParam(f.key, e.currentTarget.value)}
+                    />
+                  }
+                >
+                  <textarea
+                    rows={3}
+                    class="mt-1 w-full rounded-lg border border-line bg-card px-3 py-2 font-mono text-xs text-fg"
+                    placeholder={"mehrzeilig, z. B.:\nsystemctl --user restart foo\necho fertig"}
+                    value={params()[f.key] ?? ""}
+                    onInput={(e) => onParam(f.key, e.currentTarget.value)}
+                  />
+                </Show>
+              }
+            >
+              <select
+                class="mt-1 w-full rounded-lg border border-line bg-card px-3 py-3 text-sm text-fg"
+                value={params()[f.key] ?? ""}
+                onChange={(e) => onParam(f.key, e.currentTarget.value)}
+              >
+                <option value="">– wählen –</option>
+                <For each={sshConns()}>{(c) => <option value={c.id}>{c.id}</option>}</For>
+              </select>
+            </Show>
+          </label>
+        )}
+      </For>
+    </>
+  );
 
   const removeWidget = async (id: string) => {
     try {
@@ -793,114 +883,130 @@ function App() {
                   onInput={(e) => setAddTitle(e.currentTarget.value)}
                 />
               </label>
-              <label class="block">
-                <span class="text-xs text-muted">Rolle</span>
-                <select
-                  disabled={!!editingDef()}
-                  class="mt-1 w-full rounded-lg border border-line bg-card px-3 py-3 text-sm text-fg disabled:opacity-50"
-                  value={addRole()}
-                  onChange={(e) => {
-                    setAddRole(e.currentTarget.value as "action" | "status");
-                    setAddKind("");
-                  }}
-                >
-                  <option value="action">Aktion (Button)</option>
-                  <option value="status">Status (Anzeige)</option>
-                </select>
-              </label>
-              <label class="block">
-                <span class="text-xs text-muted">Methode</span>
-                <select
-                  class="mt-1 w-full rounded-lg border border-line bg-card px-3 py-3 text-sm text-fg"
-                  value={addKind()}
-                  onChange={(e) => {
-                    setAddKind(e.currentTarget.value);
-                    setAddParams({});
-                  }}
-                >
-                  <option value="">– wählen –</option>
-                  <For each={methods()}>
-                    {(m) => <option value={m.kind}>{m.kind}</option>}
-                  </For>
-                </select>
-              </label>
-              <For
-                each={(methods().find((m) => m.kind === addKind())?.fields ?? []).filter(
-                  (f) => !(addRole() === "action" && f.key === "ok_contains")
-                )}
-              >
-                {(f) => (
-                  <label class="block">
-                    <span class="text-xs text-muted">
-                      {f.label}
-                      {f.required ? " *" : ""}
-                    </span>
-                    <Show
-                      when={f.kind === "ssh-conn"}
-                      fallback={
-                        <input
-                          type="text"
-                          placeholder={f.kind === "mac" ? "aa:bb:cc:dd:ee:ff" : ""}
-                          class="mt-1 w-full rounded-lg border border-line bg-card px-3 py-3 text-sm text-fg"
-                          value={addParams()[f.key] ?? ""}
-                          onInput={(e) =>
-                            setAddParams({ ...addParams(), [f.key]: e.currentTarget.value })
-                          }
-                        />
-                      }
-                    >
-                      <select
-                        class="mt-1 w-full rounded-lg border border-line bg-card px-3 py-3 text-sm text-fg"
-                        value={addParams()[f.key] ?? ""}
-                        onChange={(e) =>
-                          setAddParams({ ...addParams(), [f.key]: e.currentTarget.value })
-                        }
-                      >
-                        <option value="">– wählen –</option>
-                        <For each={sshConns()}>
-                          {(c) => <option value={c.id}>{c.id}</option>}
-                        </For>
-                      </select>
-                    </Show>
-                  </label>
-                )}
-              </For>
-              <Show when={addRole() === "status"}>
+              <div class="rounded-xl border border-line p-3">
                 <label class="flex items-center gap-2 text-xs text-muted">
                   <input
                     type="checkbox"
                     class="size-4 accent-[#7aa2f7]"
-                    checked={addPausable()}
-                    onChange={(e) => setAddPausable(e.currentTarget.checked)}
+                    checked={addStatusOn()}
+                    onChange={(e) => setAddStatusOn(e.currentTarget.checked)}
                   />
-                  Pausierbar (Umschalter oben rechts auf der Karte)
+                  Status-Abfrage (Farb-Dot auf der Karte)
                 </label>
-                <label class="block">
-                  <span class="text-xs text-muted">Status-Abfrage</span>
-                  <select
-                    class="mt-1 w-full rounded-lg border border-line bg-card px-3 py-3 text-sm text-fg"
-                    value={addStart() ? "start" : "paused"}
-                    onChange={(e) => setAddStart(e.currentTarget.value === "start")}
+                <Show when={addStatusOn()}>
+                  <div class="mt-3 flex flex-col gap-3">
+                    {opFields(
+                      () => addStatusKind(),
+                      () => addStatusParams(),
+                      (k) => {
+                        setAddStatusKind(k);
+                        setAddStatusParams({});
+                      },
+                      (k, v) => setAddStatusParams({ ...addStatusParams(), [k]: v }),
+                      true,
+                    )}
+                    <label class="flex items-center gap-2 text-xs text-muted">
+                      <input
+                        type="checkbox"
+                        class="size-4 accent-[#7aa2f7]"
+                        checked={addPausable()}
+                        onChange={(e) => setAddPausable(e.currentTarget.checked)}
+                      />
+                      Pausierbar (Umschalter oben rechts auf der Karte)
+                    </label>
+                    <label class="block">
+                      <span class="text-xs text-muted">Status-Abfrage</span>
+                      <select
+                        class="mt-1 w-full rounded-lg border border-line bg-card px-3 py-3 text-sm text-fg"
+                        value={addStart() ? "start" : "paused"}
+                        onChange={(e) => setAddStart(e.currentTarget.value === "start")}
+                      >
+                        <option value="paused">pausiert (Standard)</option>
+                        <option value="start">sofort starten</option>
+                      </select>
+                    </label>
+                  </div>
+                </Show>
+              </div>
+
+              <div class="rounded-xl border border-line p-3">
+                <div class="flex items-center justify-between">
+                  <span class="text-xs font-medium">Buttons ({addRows.length})</span>
+                  <button
+                    class="cursor-pointer text-xs text-accent transition hover:brightness-110"
+                    onClick={() =>
+                      setAddRows([
+                        ...addRows,
+                        { label: "", when: "always", custom: "", kind: "", params: {} },
+                      ])
+                    }
                   >
-                    <option value="paused">pausiert (Standard)</option>
-                    <option value="start">sofort starten</option>
-                  </select>
-                </label>
-              </Show>
-              <Show when={addRole() === "action"}>
-                <label class="block">
-                  <span class="text-xs text-muted">Button zeigen</span>
-                  <select
-                    class="mt-1 w-full rounded-lg border border-line bg-card px-3 py-3 text-sm text-fg"
-                    value={addWhen()}
-                    onChange={(e) => setAddWhen(e.currentTarget.value)}
-                  >
-                    <option value="always">immer</option>
-                    <option value="ok">nur wenn Status OK (an)</option>
-                    <option value="fail">nur wenn Status FAIL (aus)</option>
-                  </select>
-                </label>
-              </Show>
+                    <FiPlus size={12} class="inline" /> hinzufügen
+                  </button>
+                </div>
+                <Show when={addRows.length === 0}>
+                  <p class="mt-1 text-xs text-muted">
+                    Keine Buttons — reine Status-Karte. Für Aktionen „hinzufügen“ klicken.
+                  </p>
+                </Show>
+                <For each={addRows}>
+                  {(row, i) => (
+                    <div class="mt-2 flex flex-col gap-2 rounded-lg border border-line bg-card/40 p-2">
+                      <div class="flex items-center gap-2">
+                        <input
+                          type="text"
+                          class="min-w-0 flex-1 rounded-lg border border-line bg-card px-2 py-2 text-sm text-fg"
+                          placeholder="Button-Text"
+                          value={row.label}
+                          onInput={(e) => setAddRows(i(), "label", e.currentTarget.value)}
+                        />
+                        <select
+                          class="w-32 shrink-0 rounded-lg border border-line bg-card px-2 py-2 text-xs text-fg"
+                          title="Wann ist der Button sichtbar?"
+                          value={row.when}
+                          onChange={(e) => {
+                            const v = e.currentTarget.value;
+                            setAddRows(i(), "when", v);
+                            if (v === "custom" && !addRows[i()].custom)
+                              setAddRows(i(), "custom", "");
+                          }}
+                        >
+                          <option value="always">immer</option>
+                          <option value="ok">bei OK</option>
+                          <option value="fail">bei FAIL</option>
+                          <option value="custom">enthält…</option>
+                        </select>
+                        <button
+                          class="cursor-pointer rounded-lg border border-line p-2 text-muted transition hover:text-down"
+                          title="Button entfernen"
+                          onClick={() => setAddRows(addRows.filter((_, j) => j !== i()))}
+                        >
+                          <FiTrash2 size={14} />
+                        </button>
+                      </div>
+                      <Show when={row.when === "custom"}>
+                        <input
+                          type="text"
+                          class="w-full rounded-lg border border-line bg-card px-2 py-2 font-mono text-xs text-fg"
+                          placeholder="zeigen, wenn der Status-Output diesen Text enthält"
+                          value={row.custom}
+                          onInput={(e) => setAddRows(i(), "custom", e.currentTarget.value)}
+                        />
+                      </Show>
+                      {opFields(
+                        () => row.kind,
+                        () => row.params,
+                        (k) => {
+                          setAddRows(i(), "kind", k);
+                          setAddRows(i(), "params", {});
+                        },
+                        (k, v) => setAddRows(i(), "params", k, v),
+                        false,
+                      )}
+                    </div>
+                  )}
+                </For>
+              </div>
               <label class="block">
                 <span class="text-xs text-muted">Auslöser</span>
                 <select
@@ -926,10 +1032,14 @@ function App() {
               </Show>
               <button
                 class="mt-1 cursor-pointer rounded-lg bg-accent py-3 text-sm font-semibold text-[#0d1117] transition hover:brightness-110 active:opacity-80 disabled:cursor-not-allowed disabled:opacity-50"
-                disabled={saving() || !addKind()}
+                disabled={saving() || (!addStatusKind() && addRows.length === 0)}
                 onClick={saveWidget}
               >
-                {saving() ? "speichere…" : "Karte anlegen"}
+                {saving()
+                  ? "speichere…"
+                  : editingDef()
+                    ? "Änderungen speichern"
+                    : "Karte anlegen"}
               </button>
             </div>
           </div>
