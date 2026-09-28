@@ -113,8 +113,12 @@ function App() {
     try {
       setRows(await invoke<Row[]>("get_status"));
       setWids(await invoke<WidgetRow[]>("get_widgets"));
-      setSshConns(await invoke<SshConn[]>("get_ssh_connections"));
-      setBoxConns(await invoke<BoxConn[]>("get_box_connections"));
+      const nextSsh = await invoke<SshConn[]>("get_ssh_connections");
+      const nextBox = await invoke<BoxConn[]>("get_box_connections");
+      // Nur bei echter Änderung setzen — sonst baut <For> die Dropdown-Optionen
+      // neu (Referenzvergleich) und offene <select>s verlieren ihre Auswahl
+      if (JSON.stringify(nextSsh) !== JSON.stringify(sshConns())) setSshConns(nextSsh);
+      if (JSON.stringify(nextBox) !== JSON.stringify(boxConns())) setBoxConns(nextBox);
       invoke<string>("get_pubkey").then(setPubkey).catch(() => setPubkey(""));
       invoke<string>("get_platform").then(setPlatform);
       setError("");
@@ -383,7 +387,12 @@ function App() {
   onMount(() => {
     refresh();
     timer = setInterval(() => {
-      if (!polling() && (rows().length || wids().length || !loaded())) refresh();
+      if (
+        !showAdd() &&
+        !polling() &&
+        (rows().length || wids().length || !loaded())
+      )
+        refresh();
     }, 10_000);
   });
   onCleanup(() => clearInterval(timer));
