@@ -673,6 +673,9 @@ async fn get_methods() -> Vec<MethodDef> {
                                 sparrow_cannon_core::widgets::FieldKind::SshConn => {
                                     "ssh-conn".into()
                                 }
+                                sparrow_cannon_core::widgets::FieldKind::BoxConn => {
+                                    "box-conn".into()
+                                }
                             },
                             required: f.required,
                         })

@@ -152,6 +152,14 @@ function App() {
       .then(setFritzDevs)
       .catch(() => {});
 
+  const loadConns = () => {
+    loadFritzDevs();
+    if (!boxConns().length)
+      invoke<BoxConn[]>("get_box_connections")
+        .then(setBoxConns)
+        .catch(() => {});
+  };
+
   const openAdd = async () => {
     try {
       setMethods(await invoke<MethodDef[]>("get_methods"));
@@ -159,7 +167,7 @@ function App() {
       setError(String(e));
     }
     setEditingDef(null);
-    loadFritzDevs();
+    loadConns();
     setAddTitle("");
     setAddStatusOn(false);
     setAddStatusKind("");
@@ -178,7 +186,7 @@ function App() {
       setError(String(e));
     }
     setEditingDef(def);
-    loadFritzDevs();
+    loadConns();
     setAddTitle(def.title);
     setAddStatusOn(!!def.status);
     setAddStatusKind(def.status?.kind ?? "");
@@ -271,7 +279,7 @@ function App() {
               {f.required ? " *" : ""}
             </span>
             <Show
-              when={f.kind === "ssh-conn"}
+              when={f.kind === "ssh-conn" || f.kind === "box-conn"}
               fallback={
                 <Show
                   when={f.key === "cmd" || f.key === "extra_cmd"}
@@ -302,7 +310,18 @@ function App() {
                 onChange={(e) => onParam(f.key, e.currentTarget.value)}
               >
                 <option value="">– wählen –</option>
-                <For each={sshConns()}>{(c) => <option value={c.id}>{c.id}</option>}</For>
+                <For
+                  each={
+                    f.kind === "box-conn"
+                      ? boxConns().map((c) => ({ id: c.id, label: c.id }))
+                      : sshConns().map((c) => ({
+                          id: c.id,
+                          label: c.note ? `${c.id} — ${c.note}` : c.id,
+                        }))
+                  }
+                >
+                  {(o) => <option value={o.id}>{o.label}</option>}
+                </For>
               </select>
             </Show>
           </label>
@@ -460,7 +479,7 @@ function App() {
                           : actionDot(w.statusState)
                       }`}
                     />
-                    <span>{w.title}</span>
+                    <span>{w.title || w.id}</span>
                     <Show when={w.disabled}>
                       <span class="text-[10px] font-normal text-muted">deaktiviert</span>
                     </Show>
@@ -579,7 +598,7 @@ function App() {
                 <button
                   class="cursor-pointer rounded-lg border border-line px-3 py-1 text-xs text-muted transition hover:border-muted hover:text-fg active:opacity-70"
                   onClick={() => {
-                    loadFritzDevs();
+                    loadConns();
                     setShowSsh(true);
                   }}
                 >

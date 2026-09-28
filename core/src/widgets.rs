@@ -26,6 +26,8 @@ pub enum FieldKind {
     Mac,
     /// Dropdown über connections.ssh.<id>
     SshConn,
+    /// Dropdown über boxes.<id>
+    BoxConn,
 }
 
 /// Ausführungskontext: aufgelöste Boxen (inkl. Passwort) für fritzbox-Methoden
@@ -216,8 +218,8 @@ pub fn field_defs() -> BTreeMap<&'static str, Vec<FieldDef>> {
         vec![
             FieldDef {
                 key: "box",
-                label: "Box-ID",
-                kind: FieldKind::Text,
+                label: "Box",
+                kind: FieldKind::BoxConn,
                 required: true,
             },
             FieldDef {
@@ -233,8 +235,8 @@ pub fn field_defs() -> BTreeMap<&'static str, Vec<FieldDef>> {
         vec![
             FieldDef {
                 key: "box",
-                label: "Box-ID",
-                kind: FieldKind::Text,
+                label: "Box",
+                kind: FieldKind::BoxConn,
                 required: true,
             },
             FieldDef {
