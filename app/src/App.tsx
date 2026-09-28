@@ -21,7 +21,6 @@ type WidgetDef = {
   disabled: boolean;
   status_paused: boolean;
   pausable: boolean;
-  action: Op | null;
   actions: CondAction[];
   status: Op | null;
   trigger: Trigger;

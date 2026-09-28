@@ -146,9 +146,6 @@ pub struct Widget {
     /// (<text>: Button sichtbar, wenn der Status-Output ihn enthält)
     #[serde(default)]
     pub actions: Vec<CondAction>,
-    /// Legacy (einzelner unbedingter Button) — wird als "always" behandelt.
-    #[serde(default)]
-    pub action: Option<Op>,
     #[serde(default)]
     pub trigger: Trigger,
 }
@@ -399,19 +396,9 @@ pub fn widget_states(widgets: &[Widget], ctx: &Ctx) -> Vec<WidgetState> {
                 Some(op) => eval(op, ctx),
                 None => ("IDLE".into(), String::new()),
             };
-            // Legacy action-Feld als always-Button vorne anstellen
-            let mut actions: Vec<CondAction> = Vec::new();
-            if let Some(op) = &w.action {
-                actions.push(CondAction {
-                    label: "Ausführen".into(),
-                    when: "always".into(),
-                    op: op.clone(),
-                });
-            }
-            actions.extend(w.actions.iter().cloned());
-
             // pausiert: alle optionen verfügbar (status unbekannt → manuell entscheiden)
-            let buttons: Vec<ActionBtn> = actions
+            let buttons: Vec<ActionBtn> = w
+                .actions
                 .iter()
                 .enumerate()
                 .filter(|(_, a)| {
@@ -452,16 +439,8 @@ pub fn widget_states(widgets: &[Widget], ctx: &Ctx) -> Vec<WidgetState> {
 
 /// Bedingten Button (Index in der Action-Liste) feuern.
 pub fn fire(w: &Widget, index: usize, ctx: &Ctx) -> anyhow::Result<String> {
-    let mut actions: Vec<CondAction> = Vec::new();
-    if let Some(op) = &w.action {
-        actions.push(CondAction {
-            label: "Ausführen".into(),
-            when: "always".into(),
-            op: op.clone(),
-        });
-    }
-    actions.extend(w.actions.iter().cloned());
-    let a = actions
+    let a = w
+        .actions
         .get(index)
         .ok_or_else(|| anyhow::anyhow!("button {index} existiert nicht"))?;
     execute(&a.op, ctx)

@@ -178,3 +178,26 @@ impl ConfigFile {
         Ok(h.ssh.clone())
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Das entfernte Legacy-Feld `action` (phase 2b) darf das Parsen alter
+    /// Configs nicht kaputt machen — serde verwirft unbekannte Keys still.
+    #[test]
+    fn unbekanntes_widget_feld_action_wird_ignoriert() {
+        let raw = r#"
+[boxes.daheim]
+base_url = "http://192.168.178.1:49000"
+user = "fritz"
+
+[[widgets]]
+id = "alt"
+action = { kind = "fritzbox.wake", params = { box = "daheim" } }
+"#;
+        let conf: ConfigFile = toml::from_str(raw).expect("parse mit legacy-key");
+        assert_eq!(conf.widgets.len(), 1);
+        assert!(conf.widgets[0].actions.is_empty());
+    }
+}
