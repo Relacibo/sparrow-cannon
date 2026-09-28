@@ -1,3 +1,6 @@
+// Die command-wrapper ummanteln bodies absichtlich als sofort-aufgerufene closure
+// (erhält return/?-semantik beim spawn_blocking). Das triggerd redundant_closure_call.
+#![allow(clippy::redundant_closure_call)]
 use serde::Serialize;
 use sparrow_cannon_core::config::ConfigFile;
 use sparrow_cannon_core::widgets::{self, Widget, WidgetState};
@@ -45,7 +48,8 @@ fn spawn_scheduler(app: tauri::AppHandle) {
     use tauri::Manager;
     std::thread::spawn(move || {
         let mut last: BTreeMap<String, Instant> = BTreeMap::new();
-        let mut pass_cache: Option<(Instant, BTreeMap<String, sparrow_cannon_core::BoxProfile>)> = None;
+        let mut pass_cache: Option<(Instant, BTreeMap<String, sparrow_cannon_core::BoxProfile>)> =
+            None;
         loop {
             std::thread::sleep(Duration::from_secs(1));
             let conf = load_conf(&app);
@@ -58,10 +62,9 @@ fn spawn_scheduler(app: tauri::AppHandle) {
             if refresh_pass {
                 let mut boxes = BTreeMap::new();
                 for (id, b) in &conf.boxes {
-                    if let Some(pass) = sparrow_cannon_core::pass::resolve(
-                        id,
-                        secrets_dir(&app).as_deref(),
-                    ) {
+                    if let Some(pass) =
+                        sparrow_cannon_core::pass::resolve(id, secrets_dir(&app).as_deref())
+                    {
                         boxes.insert(
                             id.clone(),
                             sparrow_cannon_core::BoxProfile {
@@ -224,26 +227,37 @@ pub struct SshConnInfo {
 
 /// Alle SSH-Verbindungen mit Connect-Test.
 #[tauri::command]
-fn get_ssh_connections(app: tauri::AppHandle) -> Result<Vec<SshConnInfo>, String> {
-    use tauri::Manager;
-    let conf = load_conf(&app);
-    let tests = app.state::<ConnTests>();
-    let _cached = tests.0.lock().unwrap().clone();
-    let mut out = Vec::new();
-    for (id, c) in &conf.connections.ssh {
-        let (ok, detail) = match sparrow_cannon_core::ssh::exec(&c.dest, "echo ok") {
-            Ok(_) => (true, "verbunden".into()),
-            Err(e) => (false, e.to_string()),
-        };
-        out.push(SshConnInfo {
-            id: id.clone(),
-            dest: c.dest.clone(),
-            note: c.note.clone(),
-            ok,
-            detail,
-        });
-    }
-    Ok(out)
+async fn get_ssh_connections(app: tauri::AppHandle) -> Result<Vec<SshConnInfo>, String> {
+    tauri::async_runtime::spawn_blocking(move || -> Result<Vec<SshConnInfo>, String> {
+        let t = std::time::Instant::now();
+        let r = (|| -> Result<Vec<SshConnInfo>, String> {
+            use tauri::Manager;
+            let conf = load_conf(&app);
+            let tests = app.state::<ConnTests>();
+            let _cached = tests.0.lock().unwrap().clone();
+            let mut out = Vec::new();
+            for (id, c) in &conf.connections.ssh {
+                let (ok, detail) = match sparrow_cannon_core::ssh::exec(&c.dest, "echo ok") {
+                    Ok(_) => (true, "verbunden".into()),
+                    Err(e) => (false, e.to_string()),
+                };
+                out.push(SshConnInfo {
+                    id: id.clone(),
+                    dest: c.dest.clone(),
+                    note: c.note.clone(),
+                    ok,
+                    detail,
+                });
+            }
+            Ok(out)
+        })();
+        if t.elapsed() > std::time::Duration::from_millis(20) {
+            tracing::warn!("command get_ssh_connections: {:?}", t.elapsed());
+        }
+        r
+    })
+    .await
+    .map_err(|e| format!("join: {e}"))?
 }
 
 #[derive(Serialize)]
@@ -285,12 +299,23 @@ async fn get_box_connections(app: tauri::AppHandle) -> Result<Vec<BoxConnInfo>, 
 
 /// Lokaler SSH-Pubkey (zum Verteilen auf Zielsysteme).
 #[tauri::command]
-fn get_pubkey() -> Result<String, String> {
-    let home = std::env::var("HOME").map_err(|_| "kein HOME")?;
-    let pub_path = std::path::Path::new(&home).join(".ssh/id_ed25519.pub");
-    std::fs::read_to_string(&pub_path)
-        .map(|s| s.trim().to_string())
-        .map_err(|_| format!("{} nicht lesbar — erst ssh-keygen?", pub_path.display()))
+async fn get_pubkey() -> Result<String, String> {
+    tauri::async_runtime::spawn_blocking(move || -> Result<String, String> {
+        let t = std::time::Instant::now();
+        let r = (|| -> Result<String, String> {
+            let home = std::env::var("HOME").map_err(|_| "kein HOME")?;
+            let pub_path = std::path::Path::new(&home).join(".ssh/id_ed25519.pub");
+            std::fs::read_to_string(&pub_path)
+                .map(|s| s.trim().to_string())
+                .map_err(|_| format!("{} nicht lesbar — erst ssh-keygen?", pub_path.display()))
+        })();
+        if t.elapsed() > std::time::Duration::from_millis(20) {
+            tracing::warn!("command get_pubkey: {:?}", t.elapsed());
+        }
+        r
+    })
+    .await
+    .map_err(|e| format!("join: {e}"))?
 }
 
 /// Plattform fürs UI (plattformspezifische Optionen ein/aus).
@@ -358,11 +383,23 @@ async fn ensure_device_key(app: tauri::AppHandle) -> Result<String, String> {
 }
 
 #[tauri::command]
-fn remove_ssh_conn(id: String, app: tauri::AppHandle) -> Result<(), String> {
-    let path = config_path(&app);
-    let mut conf = ConfigFile::load_from(path.clone()).unwrap_or_else(|_| ConfigFile::builtin());
-    conf.connections.ssh.remove(&id);
-    conf.save_to(&path).map_err(|e| e.to_string())
+async fn remove_ssh_conn(id: String, app: tauri::AppHandle) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || -> Result<(), String> {
+        let t = std::time::Instant::now();
+        let r = (|| -> Result<(), String> {
+            let path = config_path(&app);
+            let mut conf =
+                ConfigFile::load_from(path.clone()).unwrap_or_else(|_| ConfigFile::builtin());
+            conf.connections.ssh.remove(&id);
+            conf.save_to(&path).map_err(|e| e.to_string())
+        })();
+        if t.elapsed() > std::time::Duration::from_millis(20) {
+            tracing::warn!("command remove_ssh_conn: {:?}", t.elapsed());
+        }
+        r
+    })
+    .await
+    .map_err(|e| format!("join: {e}"))?
 }
 
 #[tauri::command]
@@ -390,13 +427,25 @@ fn upsert_box_conn(
 }
 
 #[tauri::command]
-fn remove_box_conn(id: String, app: tauri::AppHandle) -> Result<(), String> {
-    let path = config_path(&app);
-    let mut conf = ConfigFile::load_from(path.clone()).unwrap_or_else(|_| ConfigFile::builtin());
-    conf.boxes.remove(&id);
-    conf.save_to(&path).map_err(|e| e.to_string())?;
-    sparrow_cannon_core::pass::delete(&id);
-    Ok(())
+async fn remove_box_conn(id: String, app: tauri::AppHandle) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || -> Result<(), String> {
+        let t = std::time::Instant::now();
+        let r = (|| -> Result<(), String> {
+            let path = config_path(&app);
+            let mut conf =
+                ConfigFile::load_from(path.clone()).unwrap_or_else(|_| ConfigFile::builtin());
+            conf.boxes.remove(&id);
+            conf.save_to(&path).map_err(|e| e.to_string())?;
+            sparrow_cannon_core::pass::delete(&id);
+            Ok(())
+        })();
+        if t.elapsed() > std::time::Duration::from_millis(20) {
+            tracing::warn!("command remove_box_conn: {:?}", t.elapsed());
+        }
+        r
+    })
+    .await
+    .map_err(|e| format!("join: {e}"))?
 }
 
 /// JS-Fehler landen im journal (statt still im WebView-Console).
@@ -407,58 +456,109 @@ fn js_log(msg: String) {
 
 /// SSH-Verbindungen on-demand testen (löst Hintergrund-Threads aus).
 #[tauri::command]
-fn test_ssh_connections(app: tauri::AppHandle) -> Result<(), String> {
-    use tauri::Manager;
-    let conf = load_conf(&app);
-    for (id, c) in &conf.connections.ssh {
-        let app2 = app.clone();
-        let id = id.clone();
-        let dest = c.dest.clone();
-        std::thread::spawn(move || {
-            let res = match sparrow_cannon_core::ssh::exec(&dest, "echo ok") {
-                Ok(_) => (true, "verbunden".into()),
-                Err(e) => (false, e.to_string()),
-            };
-            if let Some(st) = app2.try_state::<ConnTests>() {
-                st.0.lock().unwrap().insert(id, res);
+async fn test_ssh_connections(app: tauri::AppHandle) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || -> Result<(), String> {
+        let t = std::time::Instant::now();
+        let r = (|| -> Result<(), String> {
+            use tauri::Manager;
+            let conf = load_conf(&app);
+            for (id, c) in &conf.connections.ssh {
+                let app2 = app.clone();
+                let id = id.clone();
+                let dest = c.dest.clone();
+                std::thread::spawn(move || {
+                    let res = match sparrow_cannon_core::ssh::exec(&dest, "echo ok") {
+                        Ok(_) => (true, "verbunden".into()),
+                        Err(e) => (false, e.to_string()),
+                    };
+                    if let Some(st) = app2.try_state::<ConnTests>() {
+                        st.0.lock().unwrap().insert(id, res);
+                    }
+                });
             }
-        });
-    }
-    Ok(())
+            Ok(())
+        })();
+        if t.elapsed() > std::time::Duration::from_millis(20) {
+            tracing::warn!("command test_ssh_connections: {:?}", t.elapsed());
+        }
+        r
+    })
+    .await
+    .map_err(|e| format!("join: {e}"))?
 }
 
 /// Periodische Status-Abfrage eines Widgets pausieren/starten.
 #[tauri::command]
-fn set_status_paused(id: String, paused: bool, app: tauri::AppHandle) -> Result<(), String> {
-    let path = config_path(&app);
-    let mut conf = ConfigFile::load_from(path.clone()).unwrap_or_else(|_| ConfigFile::builtin());
-    if let Some(w) = conf.widgets.iter_mut().find(|w| w.id == id) {
-        w.status_paused = paused;
-    }
-    conf.save_to(&path).map_err(|e| e.to_string())
+async fn set_status_paused(id: String, paused: bool, app: tauri::AppHandle) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || -> Result<(), String> {
+        let t = std::time::Instant::now();
+        let r = (|| -> Result<(), String> {
+            let path = config_path(&app);
+            let mut conf =
+                ConfigFile::load_from(path.clone()).unwrap_or_else(|_| ConfigFile::builtin());
+            if let Some(w) = conf.widgets.iter_mut().find(|w| w.id == id) {
+                w.status_paused = paused;
+            }
+            conf.save_to(&path).map_err(|e| e.to_string())
+        })();
+        if t.elapsed() > std::time::Duration::from_millis(20) {
+            tracing::warn!("command set_status_paused: {:?}", t.elapsed());
+        }
+        r
+    })
+    .await
+    .map_err(|e| format!("join: {e}"))?
 }
 
 /// Bestehendes Widget überschreiben (bearbeiten).
 #[tauri::command]
-fn update_widget(widget: Widget, app: tauri::AppHandle) -> Result<(), String> {
-    let path = config_path(&app);
-    let mut conf = ConfigFile::load_from(path.clone()).unwrap_or_else(|_| ConfigFile::builtin());
-    let Some(i) = conf.widgets.iter().position(|w| w.id == widget.id) else {
-        return Err(format!("widget '{}' fehlt", widget.id));
-    };
-    conf.widgets[i] = widget;
-    conf.save_to(&path).map_err(|e| e.to_string())
+async fn update_widget(widget: Widget, app: tauri::AppHandle) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || -> Result<(), String> {
+        let t = std::time::Instant::now();
+        let r = (|| -> Result<(), String> {
+            let path = config_path(&app);
+            let mut conf =
+                ConfigFile::load_from(path.clone()).unwrap_or_else(|_| ConfigFile::builtin());
+            let Some(i) = conf.widgets.iter().position(|w| w.id == widget.id) else {
+                return Err(format!("widget '{}' fehlt", widget.id));
+            };
+            conf.widgets[i] = widget;
+            conf.save_to(&path).map_err(|e| e.to_string())
+        })();
+        if t.elapsed() > std::time::Duration::from_millis(20) {
+            tracing::warn!("command update_widget: {:?}", t.elapsed());
+        }
+        r
+    })
+    .await
+    .map_err(|e| format!("join: {e}"))?
 }
 
 /// Widget aktivieren/deaktivieren.
 #[tauri::command]
-fn set_widget_enabled(id: String, enabled: bool, app: tauri::AppHandle) -> Result<(), String> {
-    let path = config_path(&app);
-    let mut conf = ConfigFile::load_from(path.clone()).unwrap_or_else(|_| ConfigFile::builtin());
-    if let Some(w) = conf.widgets.iter_mut().find(|w| w.id == id) {
-        w.disabled = !enabled;
-    }
-    conf.save_to(&path).map_err(|e| e.to_string())
+async fn set_widget_enabled(
+    id: String,
+    enabled: bool,
+    app: tauri::AppHandle,
+) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || -> Result<(), String> {
+        let t = std::time::Instant::now();
+        let r = (|| -> Result<(), String> {
+            let path = config_path(&app);
+            let mut conf =
+                ConfigFile::load_from(path.clone()).unwrap_or_else(|_| ConfigFile::builtin());
+            if let Some(w) = conf.widgets.iter_mut().find(|w| w.id == id) {
+                w.disabled = !enabled;
+            }
+            conf.save_to(&path).map_err(|e| e.to_string())
+        })();
+        if t.elapsed() > std::time::Duration::from_millis(20) {
+            tracing::warn!("command set_widget_enabled: {:?}", t.elapsed());
+        }
+        r
+    })
+    .await
+    .map_err(|e| format!("join: {e}"))?
 }
 
 fn get_widgets_impl(app: &tauri::AppHandle) -> Result<Vec<WidgetState>, String> {
@@ -552,48 +652,85 @@ pub struct FieldDefUi {
 }
 
 #[tauri::command]
-fn get_methods() -> Vec<MethodDef> {
-    widgets::field_defs()
-        .into_iter()
-        .map(|(kind, fields)| MethodDef {
-            kind: kind.to_string(),
-            fields: fields
+async fn get_methods() -> Vec<MethodDef> {
+    tauri::async_runtime::spawn_blocking(move || -> Vec<MethodDef> {
+        let t = std::time::Instant::now();
+        let r = (|| -> Vec<MethodDef> {
+            widgets::field_defs()
                 .into_iter()
-                .map(|f| FieldDefUi {
-                    key: f.key.to_string(),
-                    label: f.label.to_string(),
-                    kind: match &f.kind {
-                        sparrow_cannon_core::widgets::FieldKind::Text => "text".into(),
-                        sparrow_cannon_core::widgets::FieldKind::Mac => "mac".into(),
-                        sparrow_cannon_core::widgets::FieldKind::SshConn => "ssh-conn".into(),
-                    },
-                    required: f.required,
+                .map(|(kind, fields)| MethodDef {
+                    kind: kind.to_string(),
+                    fields: fields
+                        .into_iter()
+                        .map(|f| FieldDefUi {
+                            key: f.key.to_string(),
+                            label: f.label.to_string(),
+                            kind: match &f.kind {
+                                sparrow_cannon_core::widgets::FieldKind::Text => "text".into(),
+                                sparrow_cannon_core::widgets::FieldKind::Mac => "mac".into(),
+                                sparrow_cannon_core::widgets::FieldKind::SshConn => {
+                                    "ssh-conn".into()
+                                }
+                            },
+                            required: f.required,
+                        })
+                        .collect(),
                 })
-                .collect(),
-        })
-        .collect()
+                .collect()
+        })();
+        if t.elapsed() > std::time::Duration::from_millis(20) {
+            tracing::warn!("command get_methods: {:?}", t.elapsed());
+        }
+        r
+    })
+    .await
+    .unwrap_or_default()
 }
 
 #[tauri::command]
-fn add_widget(widget: Widget, app: tauri::AppHandle) -> Result<(), String> {
-    let path = config_path(&app);
-    let mut conf = ConfigFile::load_from(path.clone()).unwrap_or_else(|_| ConfigFile::builtin());
-    if conf.widgets.iter().any(|w| w.id == widget.id) {
-        return Err(format!("widget-id '{}' existiert schon", widget.id));
-    }
-    if widget.action.is_none() && widget.status.is_none() {
-        return Err("widget braucht action oder status".into());
-    }
-    conf.widgets.push(widget);
-    conf.save_to(&path).map_err(|e| e.to_string())
+async fn add_widget(widget: Widget, app: tauri::AppHandle) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || -> Result<(), String> {
+        let t = std::time::Instant::now();
+        let r = (|| -> Result<(), String> {
+            let path = config_path(&app);
+            let mut conf =
+                ConfigFile::load_from(path.clone()).unwrap_or_else(|_| ConfigFile::builtin());
+            if conf.widgets.iter().any(|w| w.id == widget.id) {
+                return Err(format!("widget-id '{}' existiert schon", widget.id));
+            }
+            if widget.action.is_none() && widget.status.is_none() {
+                return Err("widget braucht action oder status".into());
+            }
+            conf.widgets.push(widget);
+            conf.save_to(&path).map_err(|e| e.to_string())
+        })();
+        if t.elapsed() > std::time::Duration::from_millis(20) {
+            tracing::warn!("command add_widget: {:?}", t.elapsed());
+        }
+        r
+    })
+    .await
+    .map_err(|e| format!("join: {e}"))?
 }
 
 #[tauri::command]
-fn remove_widget(id: String, app: tauri::AppHandle) -> Result<(), String> {
-    let path = config_path(&app);
-    let mut conf = ConfigFile::load_from(path.clone()).unwrap_or_else(|_| ConfigFile::builtin());
-    conf.widgets.retain(|w| w.id != id);
-    conf.save_to(&path).map_err(|e| e.to_string())
+async fn remove_widget(id: String, app: tauri::AppHandle) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || -> Result<(), String> {
+        let t = std::time::Instant::now();
+        let r = (|| -> Result<(), String> {
+            let path = config_path(&app);
+            let mut conf =
+                ConfigFile::load_from(path.clone()).unwrap_or_else(|_| ConfigFile::builtin());
+            conf.widgets.retain(|w| w.id != id);
+            conf.save_to(&path).map_err(|e| e.to_string())
+        })();
+        if t.elapsed() > std::time::Duration::from_millis(20) {
+            tracing::warn!("command remove_widget: {:?}", t.elapsed());
+        }
+        r
+    })
+    .await
+    .map_err(|e| format!("join: {e}"))?
 }
 
 /// Werte zum Vorausfüllen des Setup-Modals.
@@ -606,21 +743,33 @@ pub struct BoxInfo {
 }
 
 #[tauri::command]
-fn get_box_info(app: tauri::AppHandle) -> Result<BoxInfo, String> {
-    let path = config_path(&app);
-    let conf = ConfigFile::load_from(path.clone()).unwrap_or_else(|_| ConfigFile::builtin());
-    let (box_id, base_url, user) = conf
-        .boxes
-        .iter()
-        .next()
-        .map(|(id, b)| (id.clone(), b.base_url.clone(), b.user.clone()))
-        .ok_or_else(|| "keine [boxes.*] in der config".to_string())?;
-    let has_saved = pass::resolve(&box_id, secrets_dir(&app).as_deref()).is_some();
-    Ok(BoxInfo {
-        base_url,
-        user,
-        has_saved,
+async fn get_box_info(app: tauri::AppHandle) -> Result<BoxInfo, String> {
+    tauri::async_runtime::spawn_blocking(move || -> Result<BoxInfo, String> {
+        let t = std::time::Instant::now();
+        let r = (|| -> Result<BoxInfo, String> {
+            let path = config_path(&app);
+            let conf =
+                ConfigFile::load_from(path.clone()).unwrap_or_else(|_| ConfigFile::builtin());
+            let (box_id, base_url, user) = conf
+                .boxes
+                .iter()
+                .next()
+                .map(|(id, b)| (id.clone(), b.base_url.clone(), b.user.clone()))
+                .ok_or_else(|| "keine [boxes.*] in der config".to_string())?;
+            let has_saved = pass::resolve(&box_id, secrets_dir(&app).as_deref()).is_some();
+            Ok(BoxInfo {
+                base_url,
+                user,
+                has_saved,
+            })
+        })();
+        if t.elapsed() > std::time::Duration::from_millis(20) {
+            tracing::warn!("command get_box_info: {:?}", t.elapsed());
+        }
+        r
     })
+    .await
+    .map_err(|e| format!("join: {e}"))?
 }
 
 #[tauri::command]
