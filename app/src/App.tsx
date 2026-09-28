@@ -98,8 +98,7 @@ function App() {
   const [addStatusOn, setAddStatusOn] = createSignal(false);
   const [addStatusKind, setAddStatusKind] = createSignal("");
   const [addStatusParams, setAddStatusParams] = createSignal<Record<string, string>>({});
-  const [addTrigger, setAddTrigger] = createSignal("manual");
-  const [addInterval, setAddInterval] = createSignal("60");
+  const [addInterval, setAddInterval] = createSignal("10");
   const [addPausable, setAddPausable] = createSignal(true);
   const [editingDef, setEditingDef] = createSignal<WidgetDef | null>(null);
   const [addStart, setAddStart] = createSignal(false);
@@ -172,8 +171,7 @@ function App() {
     setAddRows([]);
     setAddPausable(true);
     setAddStart(false);
-    setAddTrigger("manual");
-    setAddInterval("60");
+    setAddInterval("10");
     setShowAdd(true);
   };
 
@@ -190,8 +188,7 @@ function App() {
     setAddStatusParams(def.status ? { ...def.status.params } : {});
     setAddPausable(def.pausable);
     setAddStart(!def.status_paused);
-    setAddTrigger(def.trigger.kind === "schedule" ? "schedule" : "manual");
-    setAddInterval(String(def.trigger.interval_secs || 60));
+    setAddInterval(String(def.trigger.interval_secs || 10));
     setAddRows(
       def.actions.map((a) => ({
         label: a.label,
@@ -231,10 +228,10 @@ function App() {
             : null,
         status_paused: addStatusOn() && !addStart(),
         pausable: addStatusOn() && addPausable(),
-        trigger:
-          addTrigger() === "schedule"
-            ? { kind: "schedule", interval_secs: Number(addInterval()) || 60 }
-            : { kind: "manual" },
+        trigger: {
+          kind: addStatusOn() ? "schedule" : "manual",
+          interval_secs: addStatusOn() ? Number(addInterval()) || 10 : 0,
+        },
       };
       await invoke(editDef ? "update_widget" : "add_widget", { widget: w });
       setShowAdd(false);
@@ -925,6 +922,17 @@ function App() {
                         <option value="start">sofort starten</option>
                       </select>
                     </label>
+                    <label class="block">
+                      <span class="text-xs text-muted">Prüfintervall (Sekunden, leer = 10)</span>
+                      <input
+                        type="number"
+                        min="5"
+                        class="mt-1 w-full rounded-lg border border-line bg-card px-3 py-3 text-sm text-fg"
+                        placeholder="10"
+                        value={addInterval()}
+                        onInput={(e) => setAddInterval(e.currentTarget.value)}
+                      />
+                    </label>
                   </div>
                 </Show>
               </div>
@@ -1007,29 +1015,6 @@ function App() {
                   )}
                 </For>
               </div>
-              <label class="block">
-                <span class="text-xs text-muted">Auslöser</span>
-                <select
-                  class="mt-1 w-full rounded-lg border border-line bg-card px-3 py-3 text-sm text-fg"
-                  value={addTrigger()}
-                  onChange={(e) => setAddTrigger(e.currentTarget.value)}
-                >
-                  <option value="manual">Knopfdruck</option>
-                  <option value="schedule">Zeitplan (Status prüfen)</option>
-                </select>
-              </label>
-              <Show when={addTrigger() === "schedule"}>
-                <label class="block">
-                  <span class="text-xs text-muted">Intervall (Sekunden)</span>
-                  <input
-                    type="number"
-                    min="10"
-                    class="mt-1 w-full rounded-lg border border-line bg-card px-3 py-3 text-sm text-fg"
-                    value={addInterval()}
-                    onInput={(e) => setAddInterval(e.currentTarget.value)}
-                  />
-                </label>
-              </Show>
               <button
                 class="mt-1 cursor-pointer rounded-lg bg-accent py-3 text-sm font-semibold text-[#0d1117] transition hover:brightness-110 active:opacity-80 disabled:cursor-not-allowed disabled:opacity-50"
                 disabled={saving() || (!addStatusKind() && addRows.length === 0)}

@@ -172,10 +172,10 @@ pub struct Op {
 
 #[derive(Debug, Clone, Default, Deserialize, Serialize)]
 pub struct Trigger {
-    /// manual | schedule
+    /// historisch (manual|schedule) — wird nicht mehr ausgewertet
     #[serde(default)]
     pub kind: String,
-    /// Sekunden-Intervall (nur bei kind = schedule)
+    /// Prüfintervall in Sekunden (0 = Standard 10)
     #[serde(default)]
     pub interval_secs: u64,
 }

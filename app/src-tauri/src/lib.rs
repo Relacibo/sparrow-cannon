@@ -97,7 +97,8 @@ fn spawn_scheduler(app: tauri::AppHandle) {
                     continue;
                 }
                 let Some(op) = &w.status else { continue };
-                let interval = if w.trigger.kind == "schedule" && w.trigger.interval_secs > 0 {
+                // trigger.kind ist historisch — nur interval_secs zählt (0 = default 10s)
+                let interval = if w.trigger.interval_secs > 0 {
                     w.trigger.interval_secs
                 } else {
                     10
