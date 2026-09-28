@@ -38,6 +38,8 @@ type WidgetRow = {
   buttons: ActionBtn[];
 };
 
+type FritzDev = { name: string; mac: string; ip: string; active: boolean };
+
 type MethodDef = {
   kind: string;
   fields: { key: string; label: string; kind: string; required: boolean }[];
@@ -91,6 +93,7 @@ function App() {
 
   // Karten-Builder
   const [methods, setMethods] = createSignal<MethodDef[]>([]);
+  const [fritzDevs, setFritzDevs] = createSignal<FritzDev[]>([]);
   const [showAdd, setShowAdd] = createSignal(false);
   const [showSsh, setShowSsh] = createSignal(false);
   const [showBox, setShowBox] = createSignal(false);
@@ -130,19 +133,6 @@ function App() {
     return /timed out|timeout|network error/i.test(hay);
   };
 
-  const wake = async (id: string) => {
-    setBusy(id);
-    setError("");
-    try {
-      await invoke("wake", { hostId: id });
-      await refresh();
-    } catch (e) {
-      setError(String(e));
-    } finally {
-      setBusy("");
-    }
-  };
-
   const fireWidget = async (id: string, index: number) => {
     setBusy(id);
     setError("");
@@ -157,6 +147,11 @@ function App() {
     }
   };
 
+  const loadFritzDevs = () =>
+    invoke<FritzDev[]>("get_fritz_devices")
+      .then(setFritzDevs)
+      .catch(() => {});
+
   const openAdd = async () => {
     try {
       setMethods(await invoke<MethodDef[]>("get_methods"));
@@ -164,6 +159,7 @@ function App() {
       setError(String(e));
     }
     setEditingDef(null);
+    loadFritzDevs();
     setAddTitle("");
     setAddStatusOn(false);
     setAddStatusKind("");
@@ -182,6 +178,7 @@ function App() {
       setError(String(e));
     }
     setEditingDef(def);
+    loadFritzDevs();
     setAddTitle(def.title);
     setAddStatusOn(!!def.status);
     setAddStatusKind(def.status?.kind ?? "");
@@ -281,6 +278,7 @@ function App() {
                   fallback={
                     <input
                       type="text"
+                      list={f.kind === "mac" ? "fritz-mac-list" : undefined}
                       placeholder={f.kind === "mac" ? "aa:bb:cc:dd:ee:ff" : ""}
                       class="mt-1 w-full rounded-lg border border-line bg-card px-3 py-3 text-sm text-fg"
                       value={params()[f.key] ?? ""}
@@ -440,46 +438,6 @@ function App() {
       </Show>
 
         <div
-          class="grid grid-cols-1 gap-3.5 sm:grid-cols-2 lg:grid-cols-3"
-          style={view() === "dash" ? "" : "display:none"}
-        >
-          <For each={rows()}>
-            {(r) => (
-              <div class="flex flex-col gap-2 rounded-xl border border-line bg-card p-4">
-                <div class="flex items-center gap-2 font-semibold">
-                  <span class={`size-2.5 shrink-0 rounded-full ${dotColor(r.state)}`} />
-                  <span>{r.id}</span>
-                  <span class="ml-auto font-mono text-xs font-normal text-muted">
-                    {r.ip ?? r.state}
-                  </span>
-                </div>
-                <div class="min-h-4 text-xs text-muted">
-                  <Show
-                    when={r.state !== "ERR" || !boxUnknown(r)}
-                    fallback={<span class="text-err">MAC der Box unbekannt?</span>}
-                  >
-                    {[r.hostname, r.ip].filter(Boolean).join(" · ") || r.note}
-                  </Show>
-                </div>
-                <div class="font-mono text-[10px] text-muted opacity-70">{r.mac}</div>
-                <button
-                  disabled={busy() === r.id || r.state === "UP"}
-                  onClick={() => wake(r.id)}
-                  class="cursor-pointer rounded-lg bg-accent py-3 text-sm font-semibold text-[#0d1117] transition hover:bg-accent/80 active:opacity-80 disabled:cursor-default disabled:opacity-60"
-                >
-                  {busy() === r.id ? "wird geweckt…" : r.state === "UP" ? "läuft" : "Wake"}
-                </button>
-              </div>
-            )}
-          </For>
-          <Show when={!rows().length && !error()}>
-            <div class="rounded-xl border border-line bg-card p-4 text-sm text-muted">
-              {loaded() ? "keine hosts konfiguriert" : "prüfe Status…"}
-            </div>
-          </Show>
-        </div>
-
-        <div
           class="mt-6 grid grid-cols-1 gap-3.5 sm:grid-cols-2 lg:grid-cols-3"
           style={view() === "dash" && (wids().length || edit()) ? "" : "display:none"}
         >
@@ -620,7 +578,10 @@ function App() {
                 </button>
                 <button
                   class="cursor-pointer rounded-lg border border-line px-3 py-1 text-xs text-muted transition hover:border-muted hover:text-fg active:opacity-70"
-                  onClick={() => setShowSsh(true)}
+                  onClick={() => {
+                    loadFritzDevs();
+                    setShowSsh(true);
+                  }}
                 >
                   + neu
                 </button>
@@ -784,7 +745,12 @@ function App() {
               </label>
               <label class="block">
                 <span class="text-xs text-muted">Ziel *</span>
-                <input name="dest" required placeholder="host oder user@host" class="mt-1 w-full rounded-lg border border-line bg-card px-3 py-3 text-sm text-fg" />
+                <input name="dest" required list="fritz-host-list" placeholder="host oder user@host" class="mt-1 w-full rounded-lg border border-line bg-card px-3 py-3 text-sm text-fg" />
+                  <datalist id="fritz-host-list">
+                    <For each={fritzDevs().filter((d) => d.ip)}>
+                      {(d) => <option value={d.ip}>{d.name}</option>}
+                    </For>
+                  </datalist>
               </label>
               <label class="block">
                 <span class="text-xs text-muted">Benutzer (android)</span>
@@ -880,6 +846,11 @@ function App() {
                   onInput={(e) => setAddTitle(e.currentTarget.value)}
                 />
               </label>
+              <datalist id="fritz-mac-list">
+                <For each={fritzDevs().filter((d) => d.mac)}>
+                  {(d) => <option value={d.mac}>{d.name}</option>}
+                </For>
+              </datalist>
               <div class="rounded-xl border border-line p-3">
                 <label class="flex items-center gap-2 text-xs text-muted">
                   <input

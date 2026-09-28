@@ -847,6 +847,44 @@ async fn get_status(app: tauri::AppHandle) -> Result<Vec<StatusRow>, String> {
     .map_err(|e| format!("join: {e}"))?
 }
 
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FritzDeviceUi {
+    pub name: String,
+    pub mac: String,
+    pub ip: String,
+    pub active: bool,
+}
+
+/// Geräte der Box — Formular-Vorschläge für MAC- und SSH-Ziel-Felder.
+#[tauri::command]
+async fn get_fritz_devices(app: tauri::AppHandle) -> Result<Vec<FritzDeviceUi>, String> {
+    tauri::async_runtime::spawn_blocking(move || -> Result<Vec<FritzDeviceUi>, String> {
+        let t = std::time::Instant::now();
+        let r = (|| -> Result<Vec<FritzDeviceUi>, String> {
+            let (box_, _) = setup(&app)?;
+            sparrow_cannon_core::tr064::host_entries(&box_)
+                .map(|v| {
+                    v.into_iter()
+                        .map(|d| FritzDeviceUi {
+                            name: d.name,
+                            mac: d.mac,
+                            ip: d.ip,
+                            active: d.active,
+                        })
+                        .collect()
+                })
+                .map_err(|e| e.to_string())
+        })();
+        if t.elapsed() > std::time::Duration::from_millis(20) {
+            tracing::warn!("command get_fritz_devices: {:?}", t.elapsed());
+        }
+        r
+    })
+    .await
+    .map_err(|e| format!("join: {e}"))?
+}
+
 fn wake_impl(app: &tauri::AppHandle, host_id: &str) -> Result<(), String> {
     let (box_, hosts) = setup(app)?;
     let h = hosts
@@ -886,6 +924,7 @@ pub fn run() {
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
+            get_fritz_devices,
             get_status,
             wake,
             set_box_config,

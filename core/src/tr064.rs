@@ -116,6 +116,41 @@ pub fn wake_on_lan(box_: &BoxProfile, mac: &str) -> anyhow::Result<()> {
     .map(|_| ())
 }
 
+/// Ein Gerät, das die Box kennt (GetGenericHostEntry).
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct HostEntry {
+    pub name: String,
+    pub mac: String,
+    pub ip: String,
+    pub active: bool,
+}
+
+/// GetGenericHostEntries (Hosts:1) — alle der Box bekannten Geräte.
+pub fn host_entries(box_: &BoxProfile) -> anyhow::Result<Vec<HostEntry>> {
+    let mut out = Vec::new();
+    for i in 0..64u32 {
+        let xml = match call(
+            box_,
+            SERVICE_HOSTS,
+            CONTROL_HOSTS,
+            "GetGenericHostEntry",
+            &format!("<NewIndex>{i}</NewIndex>"),
+        ) {
+            Ok(x) => x,
+            Err(_) => break,
+        };
+        out.push(HostEntry {
+            name: tag_value(&xml, "NewHostName").unwrap_or_default(),
+            mac: tag_value(&xml, "NewMACAddress").unwrap_or_default(),
+            ip: tag_value(&xml, "NewIPAddress").unwrap_or_default(),
+            active: tag_value(&xml, "NewActive")
+                .map(|v| v == "1" || v.eq_ignore_ascii_case("true"))
+                .unwrap_or(false),
+        });
+    }
+    Ok(out)
+}
+
 /// `GetSpecificHostEntry` (Hosts:1) — active + IP + Hostname.
 /// (Das X_AVM-DE-Pendant heißt auf aktuellen Firmware-Ständen …ByIP.)
 pub fn host_status(box_: &BoxProfile, mac: &str) -> anyhow::Result<HostStatus> {
