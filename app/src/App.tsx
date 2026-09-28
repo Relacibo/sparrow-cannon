@@ -248,6 +248,11 @@ function App() {
     }
   };
 
+  const connOpts = (kind: string) =>
+    kind === "box-conn"
+      ? boxConns().map((c) => ({ id: c.id, label: `${c.id} — ${c.baseUrl}` }))
+      : sshConns().map((c) => ({ id: c.id, label: c.note ? `${c.id} — ${c.note}` : c.id }));
+
   const opFields = (
     kind: () => string,
     params: () => Record<string, string>,
@@ -310,16 +315,14 @@ function App() {
                 onChange={(e) => onParam(f.key, e.currentTarget.value)}
               >
                 <option value="">– wählen –</option>
-                <For
-                  each={
-                    f.kind === "box-conn"
-                      ? boxConns().map((c) => ({ id: c.id, label: c.id }))
-                      : sshConns().map((c) => ({
-                          id: c.id,
-                          label: c.note ? `${c.id} — ${c.note}` : c.id,
-                        }))
+                <Show
+                  when={
+                    params()[f.key] && !connOpts(f.kind).some((o) => o.id === params()[f.key])
                   }
                 >
+                  <option value={params()[f.key]}>unbekannt: {params()[f.key]}</option>
+                </Show>
+                <For each={connOpts(f.kind)}>
                   {(o) => <option value={o.id}>{o.label}</option>}
                 </For>
               </select>
