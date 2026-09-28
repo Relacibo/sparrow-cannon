@@ -119,6 +119,7 @@ function App() {
       invoke<string>("get_platform").then(setPlatform);
       setError("");
       setLastCheck(new Date().toLocaleTimeString());
+      setLoaded(true);
     } catch (e) {
       const msg = String(e);
       setError(msg);
