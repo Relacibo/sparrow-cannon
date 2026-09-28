@@ -1,8 +1,8 @@
 # sparrow-cannon — Release-Helfer
 #
-# Qualitäts-Gate, Builds und Tag-Automatisierung lokal. Der eigentliche
-# Release (APK-Build + Signierung + GitHub Release) läuft als GitHub-Workflow
-# bei jedem Push eines v*-Tags: .github/workflows/release.yml
+# Qualitäts-Gate und Releases lokal. Der eigentliche Release (APK-Build +
+# Signierung + GitHub Release) läuft als GitHub-Workflow bei jedem Push
+# eines v*-Tags: .github/workflows/release.yml
 
 default:
     @just --list
@@ -52,31 +52,31 @@ apk: frontend
 
 # ---------- Release ----------
 
-# Version heben: NUM z.B. 0.1.5 (conf.json, Cargo.toml, Cargo.lock)
-bump NUM:
-    #!/usr/bin/env bash
-    set -euo pipefail
-    [[ "{{NUM}}" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "Version muss MAJOR.MINOR.PATCH sein, z.B. 0.1.5" >&2; exit 1; }
-    sed -i 's/^version = ".*"/version = "{{NUM}}"/' app/src-tauri/Cargo.toml
-    sed -i 's/"version": ".*"/"version": "{{NUM}}"/' app/src-tauri/tauri.conf.json
-    cargo check -q
-    echo "Versionen auf {{NUM}} gesetzt — git diff prüfen und committen."
-
-# Release-Tag setzen: V z.B. v0.1.5 (prüft Tree/Versionen/Gate)
-tag V:
+# Release vorbereiten: V z.B. v0.1.5 — prüft cleanen Tree und freien Tag,
+# hebt die Version (tauri.conf.json, Cargo.toml, Cargo.lock), läuft das
+# Gate, committet "chore: version X.Y.Z" und setzt den Tag. Push manuell.
+release V:
     #!/usr/bin/env bash
     set -euo pipefail
     v="{{V}}"
     num="${v#v}"
     [[ "$v" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "Tag muss vMAJOR.MINOR.PATCH sein, z.B. v0.1.5" >&2; exit 1; }
-    [ -z "$(git status --porcelain)" ] || { echo "Working tree dirty — erst committen." >&2; exit 1; }
+    [ -z "$(git status --porcelain)" ] || { echo "Working tree dirty — erst committen/aufräumen." >&2; exit 1; }
     git rev-parse -q --verify "refs/tags/$v" >/dev/null && { echo "Tag $v existiert bereits." >&2; exit 1; }
-    grep -qx "version = \"$num\"" app/src-tauri/Cargo.toml || { echo "app/src-tauri/Cargo.toml: version != $num — erst 'just bump $num'." >&2; exit 1; }
-    grep -q "\"version\": \"$num\"" app/src-tauri/tauri.conf.json || { echo "tauri.conf.json: version != $num — erst 'just bump $num'." >&2; exit 1; }
+    revert() { git checkout -- Cargo.lock app/src-tauri/Cargo.toml app/src-tauri/tauri.conf.json; }
+    trap revert ERR
+    sed -i "s/^version = \".*\"/version = \"$num\"/" app/src-tauri/Cargo.toml
+    sed -i "s/\"version\": \".*\"/\"version\": \"$num\"/" app/src-tauri/tauri.conf.json
+    cargo check -q
+    grep -qx "version = \"$num\"" app/src-tauri/Cargo.toml || { echo "Bump fehlgeschlagen: app/src-tauri/Cargo.toml != $num" >&2; exit 1; }
+    grep -q "\"version\": \"$num\"" app/src-tauri/tauri.conf.json || { echo "Bump fehlgeschlagen: tauri.conf.json != $num" >&2; exit 1; }
     echo "Gate läuft (fmt, fmt-check, clippy, test) …"
     just gate
+    git add Cargo.lock app/src-tauri/Cargo.toml app/src-tauri/tauri.conf.json
+    git commit -m "chore: version $num"
     git tag -a "$v" -m "cannon $v"
-    echo "Tag $v gesetzt. Push: git push && git push origin $v"
+    echo "Fertig: $num als $v committet + getaggt."
+    echo "Release starten: git push && git push origin $v"
 
 # Letzte GitHub-Action-Runs (CI/Release-Status)
 runs:

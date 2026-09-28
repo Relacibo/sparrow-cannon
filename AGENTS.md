@@ -27,3 +27,20 @@ Regeln:
   sonst NICHT und bettet das alte Frontend ein (stale-dist).
 - Build-Output immer verifizieren (Exit-Code/output match) — npm/cargo-Ketten aus
   falschem Arbeitsverzeichnis scheitern still.
+
+## Release (justfile)
+
+- Der gesamte Release-Prozess läuft über **ein** Rezept: `just release v0.1.5`.
+  Es prüft der Reihe nach: Version-Format → cleanen Tree → Tag noch frei →
+  hebt die Version in `tauri.conf.json`, `app/src-tauri/Cargo.toml`, `Cargo.lock` →
+  Gate (alle vier Schritte oben) → Commit `chore: version X.Y.Z` → annotierter Tag.
+  Bei Fehler in der Mitte revertet es die Bump-Änderungen selbst (trap ERR).
+- **Versionen nie von Hand bumpen** — das Rezept ist die einzige Bump-Stelle,
+  damit alle drei Dateien synchron bleiben.
+- **Push bleibt manuell**: `git push && git push origin vX.Y.Z`. Der Tag-Push
+  startet den Release-Workflow (`.github/workflows/release.yml`: APK aarch64,
+  Signierung, GitHub Release). Vor dem Tag-Push das Gate grün haben — das
+  Rezept erledigt das, aber kein Push über einen roten Stand hinweg.
+- CI-/Release-Status: `just runs` (`gh run list`); einzelner Run: `gh run view <id>`.
+  Ergebnis eines Releases immer verifizieren: `gh release view vX.Y.Z` zeigt
+  published-Status + APK-Asset.
