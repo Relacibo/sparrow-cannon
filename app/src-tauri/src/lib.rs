@@ -234,13 +234,14 @@ async fn get_ssh_connections(app: tauri::AppHandle) -> Result<Vec<SshConnInfo>, 
             use tauri::Manager;
             let conf = load_conf(&app);
             let tests = app.state::<ConnTests>();
-            let _cached = tests.0.lock().unwrap().clone();
+            let cached = tests.0.lock().unwrap().clone();
             let mut out = Vec::new();
             for (id, c) in &conf.connections.ssh {
-                let (ok, detail) = match sparrow_cannon_core::ssh::exec(&c.dest, "echo ok") {
-                    Ok(_) => (true, "verbunden".into()),
-                    Err(e) => (false, e.to_string()),
-                };
+                // nur cache — die tests laufen on-demand (test_ssh_connections)
+                let (ok, detail) = cached
+                    .get(id)
+                    .cloned()
+                    .unwrap_or((false, "test läuft…".into()));
                 out.push(SshConnInfo {
                     id: id.clone(),
                     dest: c.dest.clone(),
