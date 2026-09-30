@@ -300,16 +300,25 @@ async fn get_box_connections(app: tauri::AppHandle) -> Result<Vec<BoxConnInfo>, 
 }
 
 /// Lokaler SSH-Pubkey (zum Verteilen auf Zielsysteme).
+/// Android: Device-Key aus secrets/ (wird bei Bedarf generiert).
 #[tauri::command]
-async fn get_pubkey() -> Result<String, String> {
+async fn get_pubkey(app: tauri::AppHandle) -> Result<String, String> {
     tauri::async_runtime::spawn_blocking(move || -> Result<String, String> {
         let t = std::time::Instant::now();
         let r = (|| -> Result<String, String> {
-            let home = std::env::var("HOME").map_err(|_| "kein HOME")?;
-            let pub_path = std::path::Path::new(&home).join(".ssh/id_ed25519.pub");
-            std::fs::read_to_string(&pub_path)
-                .map(|s| s.trim().to_string())
-                .map_err(|_| format!("{} nicht lesbar — erst ssh-keygen?", pub_path.display()))
+            #[cfg(target_os = "android")]
+            {
+                ensure_device_key_impl(&app)
+            }
+            #[cfg(not(target_os = "android"))]
+            {
+                let _ = &app;
+                let home = std::env::var("HOME").map_err(|_| "kein HOME")?;
+                let pub_path = std::path::Path::new(&home).join(".ssh/id_ed25519.pub");
+                std::fs::read_to_string(&pub_path)
+                    .map(|s| s.trim().to_string())
+                    .map_err(|_| format!("{} nicht lesbar — erst ssh-keygen?", pub_path.display()))
+            }
         })();
         if t.elapsed() > std::time::Duration::from_millis(20) {
             tracing::warn!("command get_pubkey: {:?}", t.elapsed());
@@ -356,32 +365,34 @@ fn upsert_ssh_conn(
 
 /// Stellt den globalen Device-SSH-Key sicher (generiert bei Bedarf).
 /// Rückgabe: pubkey zum Verteilen.
+fn ensure_device_key_impl(app: &tauri::AppHandle) -> Result<String, String> {
+    use tauri::Manager;
+    let dir = app
+        .path()
+        .app_data_dir()
+        .expect("app_data_dir nicht auflösbar");
+    let key_path = dir.join("secrets").join("device.key");
+    if let Ok(existing) = std::fs::read_to_string(&key_path) {
+        return sparrow_cannon_core::keys::public_line(&existing).map_err(|e| format!("{e}"));
+    }
+    let (priv_pem, pub_line) = sparrow_cannon_core::keys::generate_ed25519()
+        .map_err(|e| format!("{e} (desktop: system-keys nutzen)"))?;
+    std::fs::create_dir_all(key_path.parent().unwrap()).map_err(|e| e.to_string())?;
+    std::fs::write(&key_path, priv_pem).map_err(|e| e.to_string())?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let _ = std::fs::set_permissions(&key_path, std::fs::Permissions::from_mode(0o600));
+    }
+    tracing::info!("device-ssh-key generiert: {}", key_path.display());
+    Ok(pub_line)
+}
+
 #[tauri::command]
 async fn ensure_device_key(app: tauri::AppHandle) -> Result<String, String> {
-    use tauri::Manager;
-    tauri::async_runtime::spawn_blocking(move || {
-        let dir = app
-            .path()
-            .app_data_dir()
-            .expect("app_data_dir nicht auflösbar");
-        let key_path = dir.join("secrets").join("device.key");
-        if let Ok(existing) = std::fs::read_to_string(&key_path) {
-            return sparrow_cannon_core::keys::public_line(&existing).map_err(|e| format!("{e}"));
-        }
-        let (priv_pem, pub_line) = sparrow_cannon_core::keys::generate_ed25519()
-            .map_err(|e| format!("{e} (desktop: system-keys nutzen)"))?;
-        std::fs::create_dir_all(key_path.parent().unwrap()).map_err(|e| e.to_string())?;
-        std::fs::write(&key_path, priv_pem).map_err(|e| e.to_string())?;
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::PermissionsExt;
-            let _ = std::fs::set_permissions(&key_path, std::fs::Permissions::from_mode(0o600));
-        }
-        tracing::info!("device-ssh-key generiert: {}", key_path.display());
-        Ok(pub_line)
-    })
-    .await
-    .map_err(|e| format!("join: {e}"))?
+    tauri::async_runtime::spawn_blocking(move || ensure_device_key_impl(&app))
+        .await
+        .map_err(|e| format!("join: {e}"))?
 }
 
 #[tauri::command]
@@ -457,6 +468,7 @@ fn js_log(msg: String) {
 }
 
 /// SSH-Verbindungen on-demand testen (löst Hintergrund-Threads aus).
+/// Läuft über denselben Pfad wie die Widgets (Android: device-key + russh).
 #[tauri::command]
 async fn test_ssh_connections(app: tauri::AppHandle) -> Result<(), String> {
     tauri::async_runtime::spawn_blocking(move || -> Result<(), String> {
@@ -464,12 +476,15 @@ async fn test_ssh_connections(app: tauri::AppHandle) -> Result<(), String> {
         let r = (|| -> Result<(), String> {
             use tauri::Manager;
             let conf = load_conf(&app);
-            for (id, c) in &conf.connections.ssh {
+            let ctx = sparrow_cannon_core::widgets::Ctx::from_config(&conf, secrets_dir(&app));
+            for id in conf.connections.ssh.keys() {
+                let Some(target) = ctx.ssh.get(id).cloned() else {
+                    continue;
+                };
                 let app2 = app.clone();
                 let id = id.clone();
-                let dest = c.dest.clone();
                 std::thread::spawn(move || {
-                    let res = match sparrow_cannon_core::ssh::exec(&dest, "echo ok") {
+                    let res = match sparrow_cannon_core::widgets::ssh_exec(&target, "echo ok") {
                         Ok(_) => (true, "verbunden".into()),
                         Err(e) => (false, e.to_string()),
                     };

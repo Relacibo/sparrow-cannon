@@ -3,6 +3,7 @@ pub mod config;
 pub mod digest;
 pub mod keys;
 pub mod pass;
+pub mod ping;
 pub mod ssh;
 pub mod tr064;
 pub mod widgets;

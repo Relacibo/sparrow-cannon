@@ -4,7 +4,6 @@
 
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
-use std::process::Command;
 
 use crate::config::ConfigFile;
 use crate::{BoxProfile, pass, tr064};
@@ -276,39 +275,45 @@ pub fn field_defs() -> BTreeMap<&'static str, Vec<FieldDef>> {
             required: true,
         }],
     );
+    def(
+        "tcp.check",
+        vec![
+            FieldDef {
+                key: "host",
+                label: "Host",
+                kind: FieldKind::Text,
+                required: true,
+            },
+            FieldDef {
+                key: "port",
+                label: "Port",
+                kind: FieldKind::Text,
+                required: true,
+            },
+        ],
+    );
     m
 }
 
-fn ssh(t: &SshTarget, cmd: &str) -> anyhow::Result<String> {
+/// Führt ein Kommando über eine SSH-Verbindung aus (Desktop: System-ssh,
+/// Android: russh mit device-key). Public, damit die App Verbindungstests
+/// über denselben Pfad schickt.
+pub fn ssh_exec(t: &SshTarget, cmd: &str) -> anyhow::Result<String> {
     #[cfg(target_os = "android")]
     {
         match &t.keyfile {
             Some(k) => {
                 let key = std::fs::read_to_string(k)
                     .map_err(|e| anyhow::anyhow!("key {}: {e}", k.display()))?;
-                return crate::ssh::exec_with_key(&t.dest, &t.user, &key, cmd);
+                crate::ssh::exec_with_key(&t.dest, &t.user, &key, cmd)
             }
             None => anyhow::bail!("verbindung '{}' hat keinen in-app-key", t.dest),
         }
     }
     #[cfg(not(target_os = "android"))]
     {
+        let _ = t.keyfile;
         crate::ssh::exec(&t.dest, cmd)
-    }
-}
-
-fn ping(host: &str) -> anyhow::Result<String> {
-    let out = Command::new("ping")
-        .args(["-c", "1", "-W", "2", host])
-        .output()?;
-    if out.status.success() {
-        Ok(String::from_utf8_lossy(&out.stdout)
-            .lines()
-            .find(|l| l.starts_with("rtt") || l.starts_with("round-trip"))
-            .unwrap_or("online")
-            .to_string())
-    } else {
-        anyhow::bail!("keine antwort von {host}")
     }
 }
 
@@ -317,9 +322,10 @@ pub fn execute(op: &Op, ctx: &Ctx) -> anyhow::Result<String> {
     match op.kind.as_str() {
         "ssh.run" => {
             let t = ctx.ssh_target(&op.params)?;
-            ssh(&t, op.params.get("command"))
+            ssh_exec(&t, op.params.get("command"))
         }
-        "ping.check" => ping(op.params.get("host")),
+        "ping.check" => crate::ping::ping(op.params.get("host")),
+        "tcp.check" => crate::ping::tcp(op.params.get("host"), op.params.get("port")),
         "fritzbox.wake" => {
             let b = ctx.box_by_param(&op.params)?;
             tr064::wake_on_lan(b, op.params.get("mac"))?;
@@ -353,7 +359,7 @@ fn eval(op: &Op, ctx: &Ctx) -> (String, String) {
                 Ok(t) => t,
                 Err(e) => return ("ERR".into(), e.to_string()),
             };
-            match ssh(&t, op.params.get("command")) {
+            match ssh_exec(&t, op.params.get("command")) {
                 Err(e) => ("ERR".into(), e.to_string()),
                 Ok(out) => {
                     let want = op.params.get("ok_contains");
@@ -365,7 +371,11 @@ fn eval(op: &Op, ctx: &Ctx) -> (String, String) {
                 }
             }
         }
-        "ping.check" => match ping(op.params.get("host")) {
+        "ping.check" => match crate::ping::ping(op.params.get("host")) {
+            Ok(out) => ("OK".into(), out.chars().take(120).collect()),
+            Err(e) => ("FAIL".into(), e.to_string()),
+        },
+        "tcp.check" => match crate::ping::tcp(op.params.get("host"), op.params.get("port")) {
             Ok(out) => ("OK".into(), out.chars().take(120).collect()),
             Err(e) => ("FAIL".into(), e.to_string()),
         },

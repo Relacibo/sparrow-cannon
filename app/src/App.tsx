@@ -633,26 +633,15 @@ function App() {
                     <Show when={platform() === "android"}>
                       <button
                         class="shrink-0 cursor-pointer rounded p-1 text-muted transition hover:text-fg"
-                        title="Pubkey kopieren"
+                        title="Device-Pubkey kopieren (gilt für alle ssh-verbindungen)"
                         onClick={() =>
-                          invoke<string>("get_conn_pubkey", { id: c.id })
+                          invoke<string>("ensure_device_key", {})
                             .then((pub_line) => navigator.clipboard?.writeText(pub_line))
+                            .then(() => setError("device-pubkey in der zwischenablage ✅"))
                             .catch((e) => setError(String(e)))
                         }
                       >
                         <FiCopy size={18} />
-                      </button>
-                      <button
-                        class="shrink-0 cursor-pointer rounded p-1 text-muted transition hover:text-fg"
-                        title="Neuen In-App-Key generieren (überschreibt!)"
-                        onClick={() =>
-                          invoke<string>("generate_ssh_key", { id: c.id })
-                            .then((pub_line) => navigator.clipboard?.writeText(pub_line))
-                            .then(() => refresh())
-                            .catch((e) => setError(String(e)))
-                        }
-                      >
-                        <FiKey size={18} />
                       </button>
                     </Show>
                     <button

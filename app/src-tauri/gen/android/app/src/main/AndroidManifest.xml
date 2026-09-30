@@ -1,6 +1,18 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
     <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+    <!-- Android 16+ ("Local Network Access", RESTRICT_LOCAL_NETWORK): Ohne diese
+         Permissions blockt die eBPF-LNA-Schicht LAN-Traffic (FRITZ!Box, SSH-Hosts,
+         Ping) für Apps mit targetSdk >= 37 — still (Timeout/EPERM), keine Exception.
+         NEARBY_WIFI_DEVICES ist die in PermissionMonitor.setLocalNetworkPermissions
+         geprüfte Permission, ACCESS_LOCAL_NETWORK das zugehörige AppOp-Flag.
+         Zusätzlich halten wir targetSdk auf 36: Damit ist der Compat-Change
+         RESTRICT_LOCAL_NETWORK fuer die App disabled (siehe
+         shouldEnforceLocalNetRestrictions) — doppelt abgesichert gegen
+         Android-17-Regressionen in diesem Pfad. -->
+    <uses-permission android:name="android.permission.NEARBY_WIFI_DEVICES" android:usesPermissionFlags="neverForLocation" />
+    <uses-permission android:name="android.permission.ACCESS_LOCAL_NETWORK" />
 
     <!-- AndroidTV support -->
     <uses-feature android:name="android.software.leanback" android:required="false" />
