@@ -24,13 +24,16 @@ class MainActivity : TauriActivity() {
     super.onCreate(savedInstanceState)
     ensureLocalNetworkPermissions()
     // Android 15 erzwingt Edge-to-Edge: WebView-Inhalt unter Status-Bar und
-    // Kamera-Loch padsen, damit die UI nicht verdeckt wird.
+    // Kamera-Loch padsen, damit die UI nicht verdeckt wird. Bei offener
+    // Tastatur gewinnt der IME-Insets-Bottom (maxOf) — der WebView-Viewport
+    // schrumpft, fokussierte Felder in Modals bleiben sichtbar.
     val root = findViewById<View>(android.R.id.content)
     ViewCompat.setOnApplyWindowInsetsListener(root) { v, insets ->
       val bars = insets.getInsets(
         WindowInsetsCompat.Type.systemBars() or WindowInsetsCompat.Type.displayCutout()
       )
-      v.setPadding(bars.left, bars.top, bars.right, bars.bottom)
+      val ime = insets.getInsets(WindowInsetsCompat.Type.ime())
+      v.setPadding(bars.left, bars.top, bars.right, maxOf(bars.bottom, ime.bottom))
       WindowInsetsCompat.CONSUMED
     }
   }

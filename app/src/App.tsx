@@ -398,6 +398,32 @@ function App() {
 
   const setupNeeded = () => error().includes("kein Box-Passwort");
 
+  // Delete-Sicherheitsabfrage: erster Tap bewaffnet (4s), zweiter löscht.
+  const [confirmDel, setConfirmDel] = createSignal("");
+  let confirmTimer: ReturnType<typeof setTimeout> | undefined;
+  const askDelete = (key: string) => {
+    if (confirmDel() === key) {
+      setConfirmDel("");
+      return true;
+    }
+    setConfirmDel(key);
+    clearTimeout(confirmTimer);
+    confirmTimer = setTimeout(() => setConfirmDel(""), 4000);
+    return false;
+  };
+
+  // Fokussierte Felder in die Mitte des (max.) Modal-Viewports scrollen,
+  // damit sie über der Tastatur bleiben.
+  const focusIntoView = (e: FocusEvent) => {
+    const t = e.target as HTMLElement;
+    if (
+      t instanceof HTMLInputElement ||
+      t instanceof HTMLTextAreaElement ||
+      t instanceof HTMLSelectElement
+    )
+      t.scrollIntoView({ block: "center", behavior: "smooth" });
+  };
+
   return (
     <div class="mx-auto max-w-[900px] select-none p-5 pb-[max(1.25rem,env(safe-area-inset-bottom))]">
       <h1 class="mb-4 flex items-center gap-2 text-lg font-semibold text-muted">
@@ -523,11 +549,19 @@ function App() {
                           <FiEdit2 size={16} />
                         </button>
                         <button
-                          class="cursor-pointer rounded p-1 text-muted transition hover:text-down"
-                          onClick={() => removeWidget(w.id)}
-                          title="Karte entfernen"
+                          class={`cursor-pointer rounded p-1 text-xs transition ${
+                            confirmDel() === `w:${w.id}`
+                              ? "font-semibold text-down"
+                              : "text-muted hover:text-down"
+                          }`}
+                          onClick={() => askDelete(`w:${w.id}`) && removeWidget(w.id)}
+                          title={
+                            confirmDel() === `w:${w.id}`
+                              ? "wirklich entfernen? (nochmal tippen)"
+                              : "Karte entfernen"
+                          }
                         >
-                          <FiTrash2 size={18} />
+                          {confirmDel() === `w:${w.id}` ? "wirklich?" : <FiTrash2 size={18} />}
                         </button>
                       </Show>
                     </span>
@@ -645,10 +679,22 @@ function App() {
                       </button>
                     </Show>
                     <button
-                      class="shrink-0 cursor-pointer rounded p-1 text-muted transition hover:text-down"
-                      onClick={() => invoke("remove_ssh_conn", { id: c.id }).then(refresh)}
+                      class={`shrink-0 cursor-pointer rounded p-1 text-xs transition ${
+                        confirmDel() === `s:${c.id}`
+                          ? "font-semibold text-down"
+                          : "text-muted hover:text-down"
+                      }`}
+                      onClick={() =>
+                        askDelete(`s:${c.id}`) &&
+                        invoke("remove_ssh_conn", { id: c.id }).then(refresh)
+                      }
+                      title={
+                        confirmDel() === `s:${c.id}`
+                          ? "wirklich entfernen? (nochmal tippen)"
+                          : "Verbindung entfernen"
+                      }
                     >
-                      <FiTrash2 size={18} />
+                      {confirmDel() === `s:${c.id}` ? "wirklich?" : <FiTrash2 size={18} />}
                     </button>
                   </div>
                 )}
@@ -682,10 +728,22 @@ function App() {
                     </div>
                     <span class="ml-auto text-xs text-muted">{c.hasSecret ? "passwort ok" : "kein passwort"}</span>
                     <button
-                      class="shrink-0 cursor-pointer rounded p-1 text-muted transition hover:text-down"
-                      onClick={() => invoke("remove_box_conn", { id: c.id }).then(refresh)}
+                      class={`shrink-0 cursor-pointer rounded p-1 text-xs transition ${
+                        confirmDel() === `b:${c.id}`
+                          ? "font-semibold text-down"
+                          : "text-muted hover:text-down"
+                      }`}
+                      onClick={() =>
+                        askDelete(`b:${c.id}`) &&
+                        invoke("remove_box_conn", { id: c.id }).then(refresh)
+                      }
+                      title={
+                        confirmDel() === `b:${c.id}`
+                          ? "wirklich entfernen? (nochmal tippen)"
+                          : "Verbindung entfernen"
+                      }
                     >
-                      <FiTrash2 size={18} />
+                      {confirmDel() === `b:${c.id}` ? "wirklich?" : <FiTrash2 size={18} />}
                     </button>
                   </div>
                 )}
@@ -744,6 +802,7 @@ function App() {
       <Show when={showSsh()}>
         <div
           class="fixed inset-0 z-50 flex items-end justify-center bg-black/60 p-0 sm:items-center sm:p-4"
+          onFocusIn={focusIntoView}
           onClick={(e) => {
             if (e.target === e.currentTarget) setShowSsh(false);
           }}
@@ -794,6 +853,7 @@ function App() {
       <Show when={showBox()}>
         <div
           class="fixed inset-0 z-50 flex items-end justify-center bg-black/60 p-0 sm:items-center sm:p-4"
+          onFocusIn={focusIntoView}
           onClick={(e) => {
             if (e.target === e.currentTarget) setShowBox(false);
           }}
@@ -839,6 +899,7 @@ function App() {
       <Show when={showAdd()}>
         <div
           class="fixed inset-0 z-50 flex items-end justify-center bg-black/60 p-0 sm:items-center sm:p-4"
+          onFocusIn={focusIntoView}
           onClick={(e) => {
             if (e.target === e.currentTarget) setShowAdd(false);
           }}

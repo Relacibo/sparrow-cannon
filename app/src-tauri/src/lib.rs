@@ -610,7 +610,10 @@ async fn get_widgets(app: tauri::AppHandle) -> Result<Vec<WidgetState>, String> 
     tauri::async_runtime::spawn_blocking(move || {
         let t = std::time::Instant::now();
         let r = get_widgets_impl(&app);
-        if t.elapsed() > std::time::Duration::from_millis(300) {
+        // Eval enthält ICMP/TCP-Timeouts (mehrere Sekunden sind normal) —
+        // nur echte Hänger loggen. Vorher 300ms — spammt den Log bei jedem
+        // 10s-Poll zu.
+        if t.elapsed() > std::time::Duration::from_secs(8) {
             tracing::warn!("command get_widgets: {:?}", t.elapsed());
         }
         r
@@ -859,7 +862,10 @@ async fn get_status(app: tauri::AppHandle) -> Result<Vec<StatusRow>, String> {
     tauri::async_runtime::spawn_blocking(move || {
         let t = std::time::Instant::now();
         let r = get_status_impl(&app);
-        if t.elapsed() > std::time::Duration::from_millis(300) {
+        // Netzwerk-Call: zu langsam fuer die 20ms-Performance-Warnung, aber ein
+        // echter Hang (>>2s) bleibt sichtbar. Vorher 300ms — spammt den Log
+        // bei jedem 10s-Poll zu.
+        if t.elapsed() > std::time::Duration::from_secs(2) {
             tracing::warn!("command get_status: {:?}", t.elapsed());
         }
         r
@@ -897,7 +903,8 @@ async fn get_fritz_devices(app: tauri::AppHandle) -> Result<Vec<FritzDeviceUi>, 
                 })
                 .map_err(|e| e.to_string())
         })();
-        if t.elapsed() > std::time::Duration::from_millis(20) {
+        // TR-064-HTTP-Call: dauerhaft >20ms, nur echte Haenger loggen.
+        if t.elapsed() > std::time::Duration::from_secs(2) {
             tracing::warn!("command get_fritz_devices: {:?}", t.elapsed());
         }
         r
