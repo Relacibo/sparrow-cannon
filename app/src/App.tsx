@@ -1,6 +1,6 @@
 import { createEffect, createSignal, For, onCleanup, onMount, Show } from "solid-js";
 import { createStore } from "solid-js/store";
-import { FiCheck, FiCopy, FiKey, FiPause, FiPlay, FiPlus, FiRefreshCw, FiTrash2, FiX } from "solid-icons/fi";
+import { FiCheck, FiCopy, FiDownload, FiKey, FiPause, FiPlay, FiPlus, FiRefreshCw, FiTrash2, FiX } from "solid-icons/fi";
 import { invoke } from "@tauri-apps/api/core";
 
 type Row = {
@@ -653,6 +653,22 @@ function App() {
                   }}
                 >
                   <FiRefreshCw size={12} class="inline" /> testen
+                </button>
+                <button
+                  class="cursor-pointer rounded-lg border border-line px-3 py-1 text-xs text-muted transition hover:border-muted hover:text-fg active:opacity-70"
+                  title="Config vom Desktop ziehen (Desktop gewinnt bei Konflikten, lokale Änderungen werden als Konflikt-Karte gesichert)"
+                  onClick={() => {
+                    setBusy("sync");
+                    invoke<string>("sync_from_remote")
+                      .then((r) => {
+                        setError(r);
+                        return refresh();
+                      })
+                      .catch((e) => setError(String(e)))
+                      .finally(() => setBusy(""));
+                  }}
+                >
+                  <FiDownload size={12} class="inline" /> {busy() === "sync" ? "…" : "sync"}
                 </button>
                 <button
                   class="cursor-pointer rounded-lg border border-line px-3 py-1 text-xs text-muted transition hover:border-muted hover:text-fg active:opacity-70"

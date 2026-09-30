@@ -7,3 +7,5 @@
 - [x] Log wird gespammt mit get_widgets und get_fritz_devices. relikt vermutlich vom performance debugging
 - [x] Modal mit eingabe muss höher gehen. Zumindest dürfen fokusierte textfelder nicht von der Tastatur überdeckt werden (AI muss testen, dass beim fokus das volle textfeld sichtbar ist)
 - [x] Berechtigungen ((Lokales) Internet) abfragen?
+
+- [x] config-sync (pull via ssh, joplin-artig: base-hash pro item, konflikt-stash als deaktivierte karte)

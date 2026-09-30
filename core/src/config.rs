@@ -20,6 +20,18 @@ pub struct ConfigFile {
     pub actions: BTreeMap<String, ActionFile>,
     #[serde(default)]
     pub widgets: Vec<Widget>,
+    /// Pull-Sync-Quelle (ssh-conn + Pfad auf dem Remote).
+    #[serde(default)]
+    pub sync: Option<SyncFile>,
+}
+
+/// Pull-Sync: von welcher ssh-conn die Config gezogen wird.
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct SyncFile {
+    pub conn: String,
+    /// Config-Pfad auf dem Remote (leer = ~/.config/sparrow-cannon/config.toml).
+    #[serde(default)]
+    pub path: String,
 }
 
 /// Benannte Verbindungen. Widgets referenzieren sie per ID.
@@ -41,7 +53,7 @@ pub struct SshConn {
     pub note: String,
 }
 
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct BoxFile {
     pub base_url: String,
     pub user: String,
@@ -123,6 +135,7 @@ impl ConfigFile {
             connections: Connections::default(),
             actions: BTreeMap::new(),
             widgets: Vec::new(),
+            sync: None,
         }
     }
 

@@ -363,6 +363,94 @@ fn upsert_ssh_conn(
     conf.save_to(&path).map_err(|e| e.to_string())
 }
 
+/// Zieht die Config von der Sync-Quelle und merged sie Joplin-artig
+/// (base-hash pro Item, Konflikt-Stash als deaktivierte Karte).
+/// Quelle: [sync].conn, sonst — wenn vorhanden — die einzige ssh-Verbindung.
+/// Die verwendete Quelle wird in [sync] gemerkt.
+#[tauri::command]
+async fn sync_from_remote(app: tauri::AppHandle) -> Result<String, String> {
+    tauri::async_runtime::spawn_blocking(move || -> Result<String, String> {
+        let t = std::time::Instant::now();
+        let r = (|| -> Result<String, String> {
+            let path = config_path(&app);
+            let conf =
+                ConfigFile::load_from(path.clone()).unwrap_or_else(|_| ConfigFile::builtin());
+
+            let conn_id = match &conf.sync {
+                Some(s) => s.conn.clone(),
+                None => {
+                    if conf.connections.ssh.len() == 1 {
+                        conf.connections.ssh.keys().next().unwrap().clone()
+                    } else {
+                        return Err("keine sync-quelle: erst eine ssh-verbindung anlegen".into());
+                    }
+                }
+            };
+            let remote_path = conf
+                .sync
+                .as_ref()
+                .map(|s| s.path.clone())
+                .filter(|p| !p.is_empty())
+                .unwrap_or_else(|| "~/.config/sparrow-cannon/config.toml".into());
+
+            let ctx = sparrow_cannon_core::widgets::Ctx::from_config(&conf, secrets_dir(&app));
+            let target = ctx
+                .ssh
+                .get(&conn_id)
+                .ok_or_else(|| format!("ssh-verbindung '{conn_id}' fehlt"))?;
+            let raw = sparrow_cannon_core::widgets::ssh_exec(target, &format!("cat {remote_path}"))
+                .map_err(|e| format!("sync-quelle '{conn_id}': {e}"))?;
+            let remote: ConfigFile =
+                toml::from_str(&raw).map_err(|e| format!("remote config parse: {e}"))?;
+
+            let state = load_sync_state(&app);
+            let outcome = sparrow_cannon_core::sync::merge(conf, remote, &state);
+            let mut conf = outcome.conf;
+            conf.sync = Some(sparrow_cannon_core::config::SyncFile {
+                conn: conn_id.clone(),
+                path: String::new(),
+            });
+            conf.save_to(&path).map_err(|e| e.to_string())?;
+            save_sync_state(&app, &outcome.state)?;
+
+            let mut msg = outcome.report.summary();
+            if !outcome.report.conflicts.is_empty() {
+                msg.push_str(" — konflikt-karten sind deaktiviert markiert");
+            }
+            Ok(format!("sync von {conn_id} ✅ {msg}"))
+        })();
+        if t.elapsed() > std::time::Duration::from_secs(2) {
+            tracing::warn!("command sync_from_remote: {:?}", t.elapsed());
+        }
+        r
+    })
+    .await
+    .map_err(|e| format!("join: {e}"))?
+}
+
+fn sync_state_path(app: &tauri::AppHandle) -> PathBuf {
+    config_path(app).with_file_name("sync_state.toml")
+}
+
+fn load_sync_state(app: &tauri::AppHandle) -> sparrow_cannon_core::sync::SyncState {
+    std::fs::read_to_string(sync_state_path(app))
+        .ok()
+        .and_then(|raw| toml::from_str(&raw).ok())
+        .unwrap_or_default()
+}
+
+fn save_sync_state(
+    app: &tauri::AppHandle,
+    state: &sparrow_cannon_core::sync::SyncState,
+) -> Result<(), String> {
+    let body = toml::to_string_pretty(state).map_err(|e| e.to_string())?;
+    let p = sync_state_path(app);
+    if let Some(parent) = p.parent() {
+        std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+    }
+    std::fs::write(p, body).map_err(|e| e.to_string())
+}
+
 /// Stellt den globalen Device-SSH-Key sicher (generiert bei Bedarf).
 /// Rückgabe: pubkey zum Verteilen.
 fn ensure_device_key_impl(app: &tauri::AppHandle) -> Result<String, String> {
@@ -975,7 +1063,8 @@ pub fn run() {
             ensure_device_key,
             remove_ssh_conn,
             upsert_box_conn,
-            remove_box_conn
+            remove_box_conn,
+            sync_from_remote
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
