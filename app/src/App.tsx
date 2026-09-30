@@ -1,6 +1,6 @@
-import { createSignal, For, onCleanup, onMount, Show } from "solid-js";
+import { createEffect, createSignal, For, onCleanup, onMount, Show } from "solid-js";
 import { createStore } from "solid-js/store";
-import { FiCheck, FiCopy, FiEdit2, FiKey, FiMenu, FiPause, FiPlay, FiPlus, FiRefreshCw, FiTrash2, FiX } from "solid-icons/fi";
+import { FiCheck, FiCopy, FiKey, FiPause, FiPlay, FiPlus, FiRefreshCw, FiTrash2, FiX } from "solid-icons/fi";
 import { invoke } from "@tauri-apps/api/core";
 
 type Row = {
@@ -424,6 +424,18 @@ function App() {
       t.scrollIntoView({ block: "center", behavior: "smooth" });
   };
 
+  // Toast: Fehler/Info als kurzes Overlay auf BEIDEN Views (das inline
+  // error()-Textfeld gibt es nur auf Karten).
+  const [toast, setToast] = createSignal("");
+  let toastTimer: ReturnType<typeof setTimeout> | undefined;
+  const notify = (msg: string) => {
+    if (!msg) return;
+    setToast(msg);
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(() => setToast(""), 5000);
+  };
+  createEffect(() => notify(error()));
+
   return (
     <div class="mx-auto max-w-[900px] select-none p-5 pb-[max(1.25rem,env(safe-area-inset-bottom))]">
       <h1 class="mb-4 flex items-center gap-2 text-lg font-semibold text-muted">
@@ -505,9 +517,10 @@ function App() {
                     w.disabled
                       ? "border-line opacity-50"
                       : edit()
-                        ? "border-dashed border-muted"
+                        ? "cursor-pointer border-dashed border-muted hover:border-accent"
                         : "border-line"
                   }`}
+                  onClick={() => edit() && openEdit(w.def)}
                 >
                   <div class="flex items-center gap-2 font-semibold">
                     <span
@@ -530,31 +543,28 @@ function App() {
                               ? "Status-Abfrage starten"
                               : "Status-Abfrage pausieren"
                           }
-                          onClick={() =>
+                          onClick={(e) => {
+                            e.stopPropagation();
                             invoke("set_status_paused", {
                               id: w.id,
                               paused: !w.statusPaused,
-                            }).then(refresh)
-                          }
+                            }).then(refresh);
+                          }}
                         >
                           {w.statusPaused ? <FiPlay size={16} /> : <FiPause size={16} />}
                         </button>
                       </Show>
                       <Show when={edit()}>
                         <button
-                          class="cursor-pointer text-muted transition hover:text-fg"
-                          title="Karte bearbeiten"
-                          onClick={() => openEdit(w.def)}
-                        >
-                          <FiEdit2 size={16} />
-                        </button>
-                        <button
                           class={`cursor-pointer rounded p-1 text-xs transition ${
                             confirmDel() === `w:${w.id}`
                               ? "font-semibold text-down"
                               : "text-muted hover:text-down"
                           }`}
-                          onClick={() => askDelete(`w:${w.id}`) && removeWidget(w.id)}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            askDelete(`w:${w.id}`) && removeWidget(w.id);
+                          }}
                           title={
                             confirmDel() === `w:${w.id}`
                               ? "wirklich entfernen? (nochmal tippen)"
@@ -585,7 +595,10 @@ function App() {
                           {(b) => (
                             <button
                               disabled={busy() === w.id}
-                              onClick={() => fireWidget(w.id, b.index)}
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                fireWidget(w.id, b.index);
+                              }}
                               class="cursor-pointer rounded-lg bg-accent py-3 text-sm font-semibold text-[#0d1117] transition hover:bg-accent/80 active:opacity-80 disabled:cursor-default disabled:opacity-60"
                             >
                               {busy() === w.id ? "… feuert" : b.label}
@@ -798,6 +811,18 @@ function App() {
         </Show>
       </p>
 
+      <Show when={toast()}>
+        <div
+          class={`fixed bottom-24 left-1/2 z-[60] max-w-[90vw] -translate-x-1/2 rounded-lg border px-4 py-2.5 text-center text-xs shadow-lg ${
+            toast().includes("✅")
+              ? "border-up/40 bg-card text-fg"
+              : "border-err/50 bg-card text-err"
+          }`}
+        >
+          {toast()}
+        </div>
+      </Show>
+
       {/* SSH-Verbindung */}
       <Show when={showSsh()}>
         <div
@@ -959,21 +984,29 @@ function App() {
                         type="checkbox"
                         class="size-4 accent-[#7aa2f7]"
                         checked={addPausable()}
-                        onChange={(e) => setAddPausable(e.currentTarget.checked)}
+                        onChange={(e) => {
+                          setAddPausable(e.currentTarget.checked);
+                          // Pausierbare Karten starten pausiert — der
+                          // Umschalter sitzt auf der Karte, das Dropdown
+                          // waere redundant.
+                          if (e.currentTarget.checked) setAddStart(false);
+                        }}
                       />
                       Pausierbar (Umschalter oben rechts auf der Karte)
                     </label>
-                    <label class="block">
-                      <span class="text-xs text-muted">Status-Abfrage</span>
-                      <select
-                        class="mt-1 w-full rounded-lg border border-line bg-card px-3 py-3 text-sm text-fg"
-                        value={addStart() ? "start" : "paused"}
-                        onChange={(e) => setAddStart(e.currentTarget.value === "start")}
-                      >
-                        <option value="paused">pausiert (Standard)</option>
-                        <option value="start">sofort starten</option>
-                      </select>
-                    </label>
+                    <Show when={addStatusOn() && !addPausable()}>
+                      <label class="block">
+                        <span class="text-xs text-muted">Status-Abfrage</span>
+                        <select
+                          class="mt-1 w-full rounded-lg border border-line bg-card px-3 py-3 text-sm text-fg"
+                          value={addStart() ? "start" : "paused"}
+                          onChange={(e) => setAddStart(e.currentTarget.value === "start")}
+                        >
+                          <option value="paused">pausiert (Standard)</option>
+                          <option value="start">sofort starten</option>
+                        </select>
+                      </label>
+                    </Show>
                     <label class="block">
                       <span class="text-xs text-muted">Prüfintervall (Sekunden, leer = 10)</span>
                       <input

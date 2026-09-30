@@ -1,9 +1,9 @@
 - [ ] Action button condition dropdown should depend on status?
 - [ ] Updates should be reflected instantly on the interface/better storage model/lib (discussion)
-- [ ] Bei Pausierbar: Status-Abfrage dropdown nicht sinnvoll
+- [x] Bei Pausierbar: Status-Abfrage dropdown nicht sinnvoll
 - [x] Delete button sicherheitsabfrage
-- [ ] Im bearbeiten modus braucht man den stift button nicht, stattdessen sollte klick auf die karte reichen.
-- [ ] Toast notifications oder so anstatt unschönem menü, vllt noch ein log reiter.
+- [x] Im bearbeiten modus braucht man den stift button nicht, stattdessen sollte klick auf die karte reichen.
+- [ ] Toast notifications oder so anstatt unschönem menü, vllt noch ein log reiter. (grundlegende toasts eingebaut; log-reiter offen)
 - [x] Log wird gespammt mit get_widgets und get_fritz_devices. relikt vermutlich vom performance debugging
 - [x] Modal mit eingabe muss höher gehen. Zumindest dürfen fokusierte textfelder nicht von der Tastatur überdeckt werden (AI muss testen, dass beim fokus das volle textfeld sichtbar ist)
-- [ ] Berechtigungen ((Lokales) Internet) abfragen?
+- [x] Berechtigungen ((Lokales) Internet) abfragen?
