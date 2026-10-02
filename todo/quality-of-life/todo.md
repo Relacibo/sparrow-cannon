@@ -1,4 +1,4 @@
-- [ ] Action button condition dropdown should depend on status?
+- [ ] Action button condition dropdown should depend on status type?
 - [ ] Updates should be reflected instantly on the interface/better storage model/lib (discussion)
 - [x] Bei Pausierbar: Status-Abfrage dropdown nicht sinnvoll
 - [x] Delete button sicherheitsabfrage
@@ -9,3 +9,6 @@
 - [x] Berechtigungen ((Lokales) Internet) abfragen?
 
 - [x] config-sync (pull via ssh, joplin-artig: base-hash pro item, konflikt-stash als deaktivierte karte)
+- [ ] spinner an der stelle von pause/play button nach drücken.
+- [ ] config sync festlegen: p2p sync oder sftp (sftpgo?).
+- [x] Karten sollen sofort beim appstart da sein (Zumindest keine 10 Sekunden delay, außerdem spinner)

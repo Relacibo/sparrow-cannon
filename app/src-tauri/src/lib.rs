@@ -672,25 +672,12 @@ async fn set_widget_enabled(
 fn get_widgets_impl(app: &tauri::AppHandle) -> Result<Vec<WidgetState>, String> {
     use tauri::Manager;
     let conf = load_conf(app);
-    let ctx = widgets::Ctx::from_config(&conf, secrets_dir(app));
+    // Nur Cache — kein Inline-Eval: Der bremst den Appstart um Sekunden
+    // (ICMP/TCP/SSH-Timeouts). Fehlende Ergebnisse kommen als PEND und
+    // liefert der Scheduler nach; das Frontend pollt solange zügig.
     let sched = app.state::<SchedResults>();
     let sched_map = sched.0.lock().unwrap().clone();
-    Ok(conf
-        .widgets
-        .iter()
-        .map(|w| {
-            let mut st = widgets::widget_states(std::slice::from_ref(w), &ctx)
-                .into_iter()
-                .next()
-                .unwrap();
-            // Hintergrund-Ergebnis hat Vorrang (Scheduler prüft alle 10s/intervall)
-            if let Some((state, output)) = sched_map.get(&w.id) {
-                st.status_state = state.clone();
-                st.status_output = output.clone();
-            }
-            st
-        })
-        .collect())
+    Ok(widgets::widget_states_cached(&conf.widgets, &sched_map))
 }
 
 #[tauri::command]
@@ -698,10 +685,8 @@ async fn get_widgets(app: tauri::AppHandle) -> Result<Vec<WidgetState>, String> 
     tauri::async_runtime::spawn_blocking(move || {
         let t = std::time::Instant::now();
         let r = get_widgets_impl(&app);
-        // Eval enthält ICMP/TCP-Timeouts (mehrere Sekunden sind normal) —
-        // nur echte Hänger loggen. Vorher 300ms — spammt den Log bei jedem
-        // 10s-Poll zu.
-        if t.elapsed() > std::time::Duration::from_secs(8) {
+        // Cache-Lesen: sollte im Millisekundenbereich liegen.
+        if t.elapsed() > std::time::Duration::from_millis(300) {
             tracing::warn!("command get_widgets: {:?}", t.elapsed());
         }
         r
@@ -711,6 +696,7 @@ async fn get_widgets(app: tauri::AppHandle) -> Result<Vec<WidgetState>, String> 
 }
 
 fn fire_widget_impl(app: &tauri::AppHandle, id: &str, index: usize) -> Result<String, String> {
+    use tauri::Manager;
     let conf = load_conf(app);
     let ctx = widgets::Ctx::from_config(&conf, secrets_dir(app));
     let w = conf
@@ -722,6 +708,18 @@ fn fire_widget_impl(app: &tauri::AppHandle, id: &str, index: usize) -> Result<St
     match widgets::fire(&w, index, &ctx) {
         Ok(out) => {
             tracing::info!("widget {id}[{index}] gefeuert");
+            // Status sofort auffrischen — der Scheduler würde sonst bis zum
+            // nächsten Intervall den alten Stand zeigen (get_widgets ist
+            // cache-only).
+            if !w.status_paused
+                && !w.disabled
+                && let Some(op) = w.status.as_ref()
+            {
+                let res = widgets::eval_status(op, &ctx);
+                if let Some(st) = app.try_state::<SchedResults>() {
+                    st.0.lock().unwrap().insert(id.to_string(), res);
+                }
+            }
             Ok(out)
         }
         Err(e) => {

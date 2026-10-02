@@ -397,6 +397,49 @@ fn eval(op: &Op, ctx: &Ctx) -> (String, String) {
     }
 }
 
+/// Buttons nach Bedingung filtern. Pausiert oder Status noch nicht gemessen
+/// (PEND): alle verfügbar (Status unbekannt → manuell entscheiden).
+fn filter_buttons(w: &Widget, status_state: &str, status_output: &str) -> Vec<ActionBtn> {
+    w.actions
+        .iter()
+        .enumerate()
+        .filter(|(_, a)| {
+            let when = a.when.trim().to_lowercase();
+            let visible = match when.as_str() {
+                "always" | "" => true,
+                "ok" => status_state == "OK",
+                "fail" => status_state == "FAIL" || status_state == "ERR",
+                needle => status_output.to_lowercase().contains(needle),
+            };
+            w.status_paused || status_state == "PEND" || visible
+        })
+        .map(|(i, a)| ActionBtn {
+            label: a.label.clone(),
+            when: a.when.clone(),
+            index: i,
+        })
+        .collect()
+}
+
+fn build_state(w: &Widget, status_state: String, status_output: String) -> WidgetState {
+    let buttons = filter_buttons(w, &status_state, &status_output);
+    WidgetState {
+        id: w.id.clone(),
+        disabled: w.disabled,
+        status_paused: w.status_paused,
+        pausable: w.pausable,
+        def: w.clone(),
+        title: if w.title.is_empty() {
+            w.id.clone()
+        } else {
+            w.title.clone()
+        },
+        status_state,
+        status_output,
+        buttons,
+    }
+}
+
 /// States aller Widgets: Status live, Buttons nach Bedingung gefiltert.
 pub fn widget_states(widgets: &[Widget], ctx: &Ctx) -> Vec<WidgetState> {
     widgets
@@ -406,43 +449,30 @@ pub fn widget_states(widgets: &[Widget], ctx: &Ctx) -> Vec<WidgetState> {
                 Some(op) => eval(op, ctx),
                 None => ("IDLE".into(), String::new()),
             };
-            // pausiert: alle optionen verfügbar (status unbekannt → manuell entscheiden)
-            let buttons: Vec<ActionBtn> = w
-                .actions
-                .iter()
-                .enumerate()
-                .filter(|(_, a)| {
-                    let when = a.when.trim().to_lowercase();
-                    let visible = match when.as_str() {
-                        "always" | "" => true,
-                        "ok" => status_state == "OK",
-                        "fail" => status_state == "FAIL" || status_state == "ERR",
-                        needle => status_output.to_lowercase().contains(needle),
-                    };
-                    w.status_paused || visible
-                })
-                .map(|(i, a)| ActionBtn {
-                    label: a.label.clone(),
-                    when: a.when.clone(),
-                    index: i,
-                })
-                .collect();
+            build_state(w, status_state, status_output)
+        })
+        .collect()
+}
 
-            WidgetState {
-                id: w.id.clone(),
-                disabled: w.disabled,
-                status_paused: w.status_paused,
-                pausable: w.pausable,
-                def: w.clone(),
-                title: if w.title.is_empty() {
-                    w.id.clone()
-                } else {
-                    w.title.clone()
-                },
-                status_state,
-                status_output,
-                buttons,
-            }
+/// States aus fertigen Messergebnissen (Scheduler-Cache) statt Live-Eval —
+/// die UI baut daraus sofort, ohne auf Netzwerk-Timeouts zu warten.
+/// Fehlt ein Ergebnis: PEND (noch nicht gemessen; pausiert/deaktiviert/
+/// statuslos → IDLE). Der Scheduler liefert PEND nach.
+pub fn widget_states_cached(
+    widgets: &[Widget],
+    results: &BTreeMap<String, (String, String)>,
+) -> Vec<WidgetState> {
+    widgets
+        .iter()
+        .map(|w| {
+            let (status_state, status_output) = match results.get(&w.id) {
+                Some((s, o)) => (s.clone(), o.clone()),
+                None if w.disabled || w.status_paused || w.status.is_none() => {
+                    ("IDLE".into(), String::new())
+                }
+                None => ("PEND".into(), String::new()),
+            };
+            build_state(w, status_state, status_output)
         })
         .collect()
 }
@@ -454,4 +484,83 @@ pub fn fire(w: &Widget, index: usize, ctx: &Ctx) -> anyhow::Result<String> {
         .get(index)
         .ok_or_else(|| anyhow::anyhow!("button {index} existiert nicht"))?;
     execute(&a.op, ctx)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn widget(id: &str, status: bool, paused: bool, disabled: bool) -> Widget {
+        Widget {
+            id: id.into(),
+            title: id.into(),
+            disabled,
+            status_paused: paused,
+            pausable: false,
+            status: status.then(|| Op {
+                kind: "ping.check".into(),
+                params: Params::default(),
+            }),
+            actions: vec![CondAction {
+                label: "immer".into(),
+                when: "always".into(),
+                op: Op::default(),
+            }],
+            trigger: Trigger::default(),
+        }
+    }
+
+    #[test]
+    fn cached_verwendet_ergebnisse_und_pend_fuer_fehlende() {
+        let widgets = vec![
+            widget("a", true, false, false),
+            widget("b", true, false, false),
+        ];
+        let mut results = BTreeMap::new();
+        results.insert("a".into(), ("OK".into(), "läuft".into()));
+
+        let states = widget_states_cached(&widgets, &results);
+        assert_eq!(states.len(), 2);
+        let a = states.iter().find(|s| s.id == "a").unwrap();
+        assert_eq!(a.status_state, "OK");
+        assert_eq!(a.status_output, "läuft");
+        let b = states.iter().find(|s| s.id == "b").unwrap();
+        assert_eq!(b.status_state, "PEND");
+    }
+
+    #[test]
+    fn cached_pausiert_und_deaktiviert_ohne_ergebnis_sind_idle() {
+        let widgets = vec![
+            widget("p", true, true, false),
+            widget("d", true, false, true),
+            widget("s", false, false, false),
+        ];
+        let states = widget_states_cached(&widgets, &BTreeMap::new());
+        for st in &states {
+            assert_eq!(st.status_state, "IDLE", "widget {}", st.id);
+        }
+    }
+
+    #[test]
+    fn cached_ergebnis_schlaegt_idle_regeln() {
+        // pausiert, aber Scheduler hat einen letzten Stand — der gilt.
+        let widgets = vec![widget("p", true, true, false)];
+        let mut results = BTreeMap::new();
+        results.insert("p".into(), ("FAIL".into(), "aus".into()));
+        let st = &widget_states_cached(&widgets, &results)[0];
+        assert_eq!(st.status_state, "FAIL");
+    }
+
+    #[test]
+    fn pend_zeigt_alle_buttons_wie_pausiert() {
+        let mut w = widget("a", true, false, false);
+        w.actions.push(CondAction {
+            label: "nur bei ok".into(),
+            when: "ok".into(),
+            op: Op::default(),
+        });
+        let st = &widget_states_cached(std::slice::from_ref(&w), &BTreeMap::new())[0];
+        assert_eq!(st.status_state, "PEND");
+        assert_eq!(st.buttons.len(), 2, "status unbekannt: alle sichtbar");
+    }
 }

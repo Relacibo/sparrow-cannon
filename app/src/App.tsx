@@ -110,8 +110,13 @@ function App() {
   const refresh = async () => {
     setPolling(true);
     try {
-      setRows(await invoke<Row[]>("get_status"));
-      setWids(await invoke<WidgetRow[]>("get_widgets"));
+      const widgetsP = invoke<WidgetRow[]>("get_widgets");
+      const statusP = invoke<Row[]>("get_status");
+      // Karten sofort zeigen — nicht auf den langsamen Fritzbox-Status warten
+      widgetsP.then((v) => setWids(v), () => {});
+      const results = await Promise.allSettled([widgetsP, statusP]);
+      if (results[0].status === "fulfilled") setWids(results[0].value);
+      if (results[1].status === "fulfilled") setRows(results[1].value);
       const nextSsh = await invoke<SshConn[]>("get_ssh_connections");
       const nextBox = await invoke<BoxConn[]>("get_box_connections");
       // Nur bei echter Änderung setzen — sonst baut <For> die Dropdown-Optionen
@@ -120,6 +125,8 @@ function App() {
       if (JSON.stringify(nextBox) !== JSON.stringify(boxConns())) setBoxConns(nextBox);
       invoke<string>("get_pubkey").then(setPubkey).catch(() => setPubkey(""));
       invoke<string>("get_platform").then(setPlatform);
+      const firstErr = results.find((r) => r.status === "rejected");
+      if (firstErr?.status === "rejected") throw firstErr.reason;
       setError("");
       setLastCheck(new Date().toLocaleTimeString());
       setLoaded(true);
@@ -383,18 +390,19 @@ function App() {
   };
 
   let timer: number;
+  const poll = () => {
+    if (!showAdd() && !polling() && (rows().length || wids().length || !loaded()))
+      refresh();
+    // Solange der Scheduler noch Status-Ergebnisse nachliefert (PEND),
+    // zügig nachfragen — danach normaler 10s-Takt.
+    const pending = wids().some((w) => w.statusState === "PEND");
+    timer = setTimeout(poll, pending ? 2_000 : 10_000);
+  };
   onMount(() => {
     refresh();
-    timer = setInterval(() => {
-      if (
-        !showAdd() &&
-        !polling() &&
-        (rows().length || wids().length || !loaded())
-      )
-        refresh();
-    }, 10_000);
+    timer = setTimeout(poll, 2_000);
   });
-  onCleanup(() => clearInterval(timer));
+  onCleanup(() => clearTimeout(timer));
 
   const setupNeeded = () => error().includes("kein Box-Passwort");
 
@@ -527,7 +535,9 @@ function App() {
                       class={`size-2.5 shrink-0 rounded-full ${
                         w.disabled || w.statusPaused
                           ? "bg-muted"
-                          : actionDot(w.statusState)
+                          : w.statusState === "PEND"
+                            ? "animate-pulse bg-muted"
+                            : actionDot(w.statusState)
                       }`}
                     />
                     <span>{w.title || w.id}</span>
@@ -581,7 +591,17 @@ function App() {
                       ? "status wird nicht abgefragt"
                       : w.statusPaused
                         ? "pausiert — alle aktionen verfügbar"
-                        : w.statusOutput.split("\n")[0] || w.statusState}
+                        : w.statusState === "PEND"
+                          ? (
+                            <span class="flex items-center gap-1.5">
+                              <span
+                                class="inline-block size-2.5 animate-spin rounded-full border-2 border-line border-t-accent"
+                                role="status"
+                              />
+                              status folgt…
+                            </span>
+                          )
+                          : w.statusOutput.split("\n")[0] || w.statusState}
                   </div>
                   <Show when={!w.disabled}>
                     <Show
