@@ -26,12 +26,18 @@ pub struct ConfigFile {
 }
 
 /// Pull-Sync: von welcher ssh-conn die Config gezogen wird.
-#[derive(Debug, Clone, Deserialize, Serialize)]
+#[derive(Debug, Clone, Default, Deserialize, Serialize)]
 pub struct SyncFile {
+    #[serde(default)]
     pub conn: String,
     /// Config-Pfad auf dem Remote (leer = ~/.config/sparrow-cannon/config.toml).
     #[serde(default)]
     pub path: String,
+    /// Optionale HTTP-URL für den Config-Pull (raw.githubusercontent.com —
+    /// liefert immer den neuesten Stand des Branches). Hat Vorrang vor der
+    /// ssh-quelle. Secrets gehen NIE über die URL, nur via SSH.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub url: Option<String>,
 }
 
 /// Benannte Verbindungen. Widgets referenzieren sie per ID.

@@ -101,6 +101,9 @@ function App() {
   const [showSecret, setShowSecret] = createSignal(false);
   const [secretId, setSecretId] = createSignal("");
   const [secretValue, setSecretValue] = createSignal("");
+  const [showSyncUrl, setShowSyncUrl] = createSignal(false);
+  const [syncUrl, setSyncUrl] = createSignal("");
+  const [syncUrlDraft, setSyncUrlDraft] = createSignal("");
   const [addTitle, setAddTitle] = createSignal("");
   const [addStatusOn, setAddStatusOn] = createSignal(false);
   const [addStatusKind, setAddStatusKind] = createSignal("");
@@ -125,11 +128,13 @@ function App() {
       const nextSsh = await invoke<SshConn[]>("get_ssh_connections");
       const nextBox = await invoke<BoxConn[]>("get_box_connections");
       const nextSecrets = await invoke<string[]>("get_secret_ids");
+      const nextSyncUrl = await invoke<string>("get_sync_url");
       // Nur bei echter Änderung setzen — sonst baut <For> die Dropdown-Optionen
       // neu (Referenzvergleich) und offene <select>s verlieren ihre Auswahl
       if (JSON.stringify(nextSsh) !== JSON.stringify(sshConns())) setSshConns(nextSsh);
       if (JSON.stringify(nextBox) !== JSON.stringify(boxConns())) setBoxConns(nextBox);
       if (JSON.stringify(nextSecrets) !== JSON.stringify(secretIds())) setSecretIds(nextSecrets);
+      if (nextSyncUrl !== syncUrl()) setSyncUrl(nextSyncUrl);
       invoke<string>("get_pubkey").then(setPubkey).catch(() => setPubkey(""));
       invoke<string>("get_platform").then(setPlatform);
       const firstErr = results.find((r) => r.status === "rejected");
@@ -404,6 +409,16 @@ function App() {
       setShowSecret(false);
       setSecretId("");
       setSecretValue("");
+      await refresh();
+    } catch (e) {
+      setError(String(e));
+    }
+  };
+
+  const saveSyncUrl = async () => {
+    try {
+      await invoke("set_sync_url", { url: syncUrlDraft().trim() });
+      setShowSyncUrl(false);
       await refresh();
     } catch (e) {
       setError(String(e));
@@ -700,7 +715,17 @@ function App() {
                 </button>
                 <button
                   class="cursor-pointer rounded-lg border border-line px-3 py-1 text-xs text-muted transition hover:border-muted hover:text-fg active:opacity-70"
-                  title="Config vom Desktop ziehen (Desktop gewinnt bei Konflikten, lokale Änderungen werden als Konflikt-Karte gesichert)"
+                  title="Config-URL setzen (raw.githubusercontent.com — Pull per HTTP, ssh nur noch für secrets)"
+                  onClick={() => {
+                    setSyncUrlDraft(syncUrl());
+                    setShowSyncUrl(true);
+                  }}
+                >
+                  url
+                </button>
+                <button
+                  class="cursor-pointer rounded-lg border border-line px-3 py-1 text-xs text-muted transition hover:border-muted hover:text-fg active:opacity-70"
+                  title="Sync ziehen (config via url/ssh, secrets via ssh)"
                   onClick={() => {
                     setBusy("sync");
                     invoke<string>("sync_from_remote")
@@ -1078,6 +1103,53 @@ function App() {
               <button
                 class="mt-1 cursor-pointer rounded-lg bg-accent py-3 text-sm font-semibold text-[#0d1117] transition hover:bg-accent/80 active:opacity-80"
                 onClick={saveSecret}
+              >
+                Speichern
+              </button>
+            </div>
+          </div>
+        </div>
+      </Show>
+
+      {/* Sync-URL */}
+      <Show when={showSyncUrl()}>
+        <div
+          class="fixed inset-0 z-50 flex items-end justify-center bg-black/60 p-0 sm:items-center sm:p-4"
+          onFocusIn={focusIntoView}
+          onClick={(e) => {
+            if (e.target === e.currentTarget) setShowSyncUrl(false);
+          }}
+        >
+          <div class="max-h-[94dvh] w-full max-w-sm overflow-y-auto overscroll-contain rounded-t-2xl border border-line bg-bg p-5 sm:max-h-[86vh] sm:rounded-2xl">
+            <div class="mb-3 flex items-center justify-between">
+              <h2 class="font-semibold">Config-URL</h2>
+              <button
+                class="cursor-pointer text-xs text-muted transition hover:text-fg"
+                onClick={() => setShowSyncUrl(false)}
+              >
+                abbrechen
+              </button>
+            </div>
+            <div class="flex flex-col gap-3">
+              <label class="block">
+                <span class="text-xs text-muted">
+                  HTTP-URL der config (leer = ssh-fallback)
+                </span>
+                <input
+                  type="url"
+                  class="mt-1 w-full rounded-lg border border-line bg-card px-3 py-3 font-mono text-xs text-fg"
+                  placeholder="https://raw.githubusercontent.com/…/config.toml"
+                  value={syncUrlDraft()}
+                  onInput={(e) => setSyncUrlDraft(e.currentTarget.value)}
+                />
+              </label>
+              <p class="text-[10px] leading-relaxed text-muted opacity-70">
+                raw.githubusercontent.com liefert immer den neuesten stand des
+                branches. secrets gehen weiterhin nur via ssh.
+              </p>
+              <button
+                class="mt-1 cursor-pointer rounded-lg bg-accent py-3 text-sm font-semibold text-[#0d1117] transition hover:bg-accent/80 active:opacity-80"
+                onClick={saveSyncUrl}
               >
                 Speichern
               </button>

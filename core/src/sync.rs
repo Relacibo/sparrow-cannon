@@ -21,6 +21,20 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::collections::BTreeMap;
 
+/// Config-Rohtext von einer URL laden (raw.githubusercontent.com — liefert
+/// immer den neuesten Stand des Branches).
+pub fn fetch_config(url: &str) -> anyhow::Result<String> {
+    let resp = ureq::get(url)
+        .timeout(std::time::Duration::from_secs(15))
+        .call()
+        .map_err(|e| anyhow::anyhow!("{e}"))?;
+    if resp.status() != 200 {
+        anyhow::bail!("http {}", resp.status());
+    }
+    resp.into_string()
+        .map_err(|e| anyhow::anyhow!("response-body: {e}"))
+}
+
 /// Sync-Buchhaltung: item-id → hash der zuletzt übernommenen Remote-Version.
 #[derive(Debug, Default, Clone, Serialize, Deserialize)]
 pub struct SyncState {

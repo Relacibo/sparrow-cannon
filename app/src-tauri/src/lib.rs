@@ -355,6 +355,23 @@ fn upsert_ssh_conn(
 /// (base-hash pro Item, Konflikt-Stash als deaktivierte Karte).
 /// Quelle: [sync].conn, sonst — wenn vorhanden — die einzige ssh-Verbindung.
 /// Die verwendete Quelle wird in [sync] gemerkt.
+/// Config-URL für den Pull-Sync setzen/leeren (leer = ssh-fallback).
+#[tauri::command]
+async fn get_sync_url(app: tauri::AppHandle) -> Result<String, String> {
+    Ok(load_conf(&app).sync.and_then(|s| s.url).unwrap_or_default())
+}
+
+/// Config-URL für den Pull-Sync setzen/leeren (leer = ssh-fallback).
+#[tauri::command]
+async fn set_sync_url(url: String, app: tauri::AppHandle) -> Result<(), String> {
+    let path = config_path(&app);
+    let mut conf = ConfigFile::load_from(path.clone()).unwrap_or_else(|_| ConfigFile::builtin());
+    let u = url.trim().to_string();
+    let sync = conf.sync.get_or_insert_with(Default::default);
+    sync.url = (!u.is_empty()).then_some(u);
+    conf.save_to(&path).map_err(|e| e.to_string())
+}
+
 #[tauri::command]
 async fn sync_from_remote(app: tauri::AppHandle) -> Result<String, String> {
     tauri::async_runtime::spawn_blocking(move || -> Result<String, String> {
@@ -364,30 +381,50 @@ async fn sync_from_remote(app: tauri::AppHandle) -> Result<String, String> {
             let conf =
                 ConfigFile::load_from(path.clone()).unwrap_or_else(|_| ConfigFile::builtin());
 
-            let conn_id = match &conf.sync {
-                Some(s) => s.conn.clone(),
-                None => {
-                    if conf.connections.ssh.len() == 1 {
-                        conf.connections.ssh.keys().next().unwrap().clone()
-                    } else {
-                        return Err("keine sync-quelle: erst eine ssh-verbindung anlegen".into());
-                    }
-                }
-            };
-            let remote_path = conf
-                .sync
+            let prev_sync = conf.sync.clone();
+            let prev_url = prev_sync
+                .as_ref()
+                .and_then(|s| s.url.clone())
+                .filter(|u| !u.is_empty());
+            let remote_path = prev_sync
                 .as_ref()
                 .map(|s| s.path.clone())
                 .filter(|p| !p.is_empty())
                 .unwrap_or_else(|| "~/.config/sparrow-cannon/config.toml".into());
 
+            // SSH-Quelle: für secrets immer nötig, für den config-pull nur
+            // im fallback (wenn keine [sync].url gesetzt ist).
             let ctx = sparrow_cannon_core::widgets::Ctx::from_config(&conf, secrets_dir(&app));
-            let target = ctx
-                .ssh
-                .get(&conn_id)
-                .ok_or_else(|| format!("ssh-verbindung '{conn_id}' fehlt"))?;
-            let raw = sparrow_cannon_core::widgets::ssh_exec(target, &format!("cat {remote_path}"))
-                .map_err(|e| format!("sync-quelle '{conn_id}': {e}"))?;
+            let conn_id = prev_sync
+                .as_ref()
+                .map(|s| s.conn.clone())
+                .filter(|c| !c.is_empty())
+                .or_else(|| {
+                    (conf.connections.ssh.len() == 1)
+                        .then(|| conf.connections.ssh.keys().next().unwrap().clone())
+                });
+            let target = conn_id.as_ref().and_then(|id| ctx.ssh.get(id).cloned());
+
+            // Config-Pull: [sync].url (HTTP) hat Vorrang, sonst SSH.
+            let (raw, via) = if let Some(u) = &prev_url {
+                (
+                    sparrow_cannon_core::sync::fetch_config(u)
+                        .map_err(|e| format!("config-url: {e}"))?,
+                    "url".to_string(),
+                )
+            } else {
+                let conn = conn_id
+                    .clone()
+                    .ok_or("keine sync-quelle: [sync].url setzen oder ssh-verbindung anlegen")?;
+                let t = target
+                    .as_ref()
+                    .ok_or_else(|| format!("ssh-verbindung '{conn}' fehlt"))?;
+                (
+                    sparrow_cannon_core::widgets::ssh_exec(t, &format!("cat {remote_path}"))
+                        .map_err(|e| format!("sync-quelle '{conn}': {e}"))?,
+                    format!("ssh {conn}"),
+                )
+            };
             let remote: ConfigFile =
                 toml::from_str(&raw).map_err(|e| format!("remote config parse: {e}"))?;
 
@@ -395,8 +432,12 @@ async fn sync_from_remote(app: tauri::AppHandle) -> Result<String, String> {
             let outcome = sparrow_cannon_core::sync::merge(conf, remote, &state);
             let mut conf = outcome.conf;
             conf.sync = Some(sparrow_cannon_core::config::SyncFile {
-                conn: conn_id.clone(),
-                path: String::new(),
+                conn: conn_id.clone().unwrap_or_default(),
+                path: prev_sync
+                    .as_ref()
+                    .map(|s| s.path.clone())
+                    .unwrap_or_default(),
+                url: prev_url,
             });
             conf.save_to(&path).map_err(|e| e.to_string())?;
             save_sync_state(&app, &outcome.state)?;
@@ -407,27 +448,31 @@ async fn sync_from_remote(app: tauri::AppHandle) -> Result<String, String> {
             }
 
             // secrets.toml (sibling der remote config) — union-merge,
-            // remote gewinnt pro ID. Best effort: fehlt die Datei auf der
-            // Quelle (älterer Stand), scheitert der Sync nicht daran.
-            let secrets_msg = match std::path::Path::new(&remote_path)
-                .parent()
-                .map(|p| p.join("secrets.toml"))
-                .map(|sp| {
-                    sparrow_cannon_core::widgets::ssh_exec(target, &format!("cat {}", sp.display()))
-                }) {
-                Some(pulled) => match pulled {
-                    Ok(raw) => match sparrow_cannon_core::pass::merge_remote_raw(
-                        secrets_dir(&app).as_deref(),
-                        &raw,
-                    ) {
-                        Ok((taken, total)) => format!(", secrets: {taken} neu ({total} gesamt)"),
-                        Err(e) => format!(", secrets: {e}"),
-                    },
-                    Err(_) => ", secrets: keine datei auf der quelle".to_string(),
-                },
-                None => String::new(),
+            // remote gewinnt pro ID. Immer via SSH (nie über die öffentliche
+            // URL). Best effort: scheitert der Pull, scheitert der Sync nicht.
+            let secrets_msg = match &target {
+                Some(t) => {
+                    let cmd = std::path::Path::new(&remote_path)
+                        .parent()
+                        .map(|p| p.join("secrets.toml"))
+                        .map(|sp| format!("cat {}", sp.display()));
+                    match cmd.map(|c| sparrow_cannon_core::widgets::ssh_exec(t, &c)) {
+                        Some(Ok(raw)) => match sparrow_cannon_core::pass::merge_remote_raw(
+                            secrets_dir(&app).as_deref(),
+                            &raw,
+                        ) {
+                            Ok((taken, total)) => {
+                                format!(", secrets: {taken} neu ({total} gesamt)")
+                            }
+                            Err(e) => format!(", secrets: {e}"),
+                        },
+                        Some(Err(e)) => format!(", secrets: nicht gezogen ({e})"),
+                        None => String::new(),
+                    }
+                }
+                None => ", secrets: übersprungen (keine ssh-quelle)".to_string(),
             };
-            Ok(format!("sync von {conn_id} ✅ {msg}{secrets_msg}"))
+            Ok(format!("sync von {via} ✅ {msg}{secrets_msg}"))
         })();
         if t.elapsed() > std::time::Duration::from_secs(2) {
             tracing::warn!("command sync_from_remote: {:?}", t.elapsed());
@@ -1107,6 +1152,8 @@ pub fn run() {
             get_secret_ids,
             set_secret,
             remove_secret,
+            get_sync_url,
+            set_sync_url,
             upsert_box_conn,
             remove_box_conn,
             sync_from_remote
