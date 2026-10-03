@@ -35,11 +35,64 @@ enum Cmd {
     Widgets,
     /// Feuert die Action eines Widgets.
     Fire { widget: String },
+    /// Secret-Verwaltung (Werte in <config-dir>/secrets.toml, chmod 600).
+    Secret {
+        #[command(subcommand)]
+        cmd: SecretCmd,
+    },
 }
 
-/// Passwort-Auflösung für die gewählte Box: CANNON_PASS → keyring(box-id) → Prompt.
+#[derive(Subcommand)]
+enum SecretCmd {
+    /// Secret setzen (Wert wird verborgen abgefragt).
+    Set { id: String },
+    /// Secret entfernen.
+    Rm { id: String },
+    /// IDs aller Secrets listen (niemals die Werte).
+    List,
+}
+
+/// Config-Verzeichnis (Heimat von config.toml + secrets.toml).
+fn config_dir() -> anyhow::Result<std::path::PathBuf> {
+    ConfigFile::default_path()
+        .parent()
+        .map(std::path::Path::to_path_buf)
+        .context("config-pfad ohne verzeichnis")
+}
+
+fn secret_cmd(cmd: SecretCmd) -> anyhow::Result<()> {
+    let dir = config_dir()?;
+    match cmd {
+        SecretCmd::Set { id } => {
+            let val = rpassword::prompt_password(format!("Wert für '{id}': "))
+                .context("passwort-eingabe")?;
+            let way = sparrow_cannon_core::pass::store(&id, &val, Some(&dir));
+            if way == "nirgends" {
+                anyhow::bail!("secret konnte nicht geschrieben werden ({})", dir.display());
+            }
+            println!("secret '{id}' → {}", dir.join("secrets.toml").display());
+        }
+        SecretCmd::Rm { id } => {
+            sparrow_cannon_core::pass::delete(&id, Some(&dir));
+            println!("secret '{id}' entfernt (falls vorhanden)");
+        }
+        SecretCmd::List => {
+            let ids = sparrow_cannon_core::pass::ids(Some(&dir));
+            if ids.is_empty() {
+                println!("keine secrets in {}", dir.join("secrets.toml").display());
+            }
+            for id in ids {
+                println!("{id}");
+            }
+        }
+    }
+    Ok(())
+}
+
+/// Passwort-Auflösung für die gewählte Box: CANNON_PASS → secrets.toml → Prompt.
 fn resolve_pass(box_id: &str) -> anyhow::Result<String> {
-    sparrow_cannon_core::pass::resolve(box_id, None).map_or_else(
+    let dir = config_dir().ok();
+    sparrow_cannon_core::pass::resolve(box_id, dir.as_deref()).map_or_else(
         || rpassword::prompt_password("Fritzbox-Passwort: ").context("passwort-eingabe"),
         Ok,
     )
@@ -64,6 +117,9 @@ fn select_box(
 
 fn main() -> anyhow::Result<()> {
     let cli = Cli::parse();
+    if let Cmd::Secret { cmd } = cli.cmd {
+        return secret_cmd(cmd);
+    }
     let conf = ConfigFile::load_default().context("config-problem")?;
     let box_name = cli
         .r#box
@@ -131,7 +187,7 @@ fn main() -> anyhow::Result<()> {
             }
         }
         Cmd::Widgets => {
-            let ctx = sparrow_cannon_core::widgets::Ctx::from_config(&conf, None);
+            let ctx = sparrow_cannon_core::widgets::Ctx::from_config(&conf, config_dir().ok());
             for w in &conf.widgets {
                 let st = sparrow_cannon_core::widgets::widget_states(std::slice::from_ref(w), &ctx)
                     .into_iter()
@@ -149,7 +205,7 @@ fn main() -> anyhow::Result<()> {
             }
         }
         Cmd::Fire { widget } => {
-            let ctx = sparrow_cannon_core::widgets::Ctx::from_config(&conf, None);
+            let ctx = sparrow_cannon_core::widgets::Ctx::from_config(&conf, config_dir().ok());
             let w = conf
                 .widgets
                 .iter()
@@ -171,6 +227,7 @@ fn main() -> anyhow::Result<()> {
                 println!("  {stype:<60} {url}");
             }
         }
+        Cmd::Secret { .. } => unreachable!("früh in main behandelt"),
     }
     let _ = std::io::stdout().flush();
     Ok(())

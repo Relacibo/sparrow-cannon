@@ -2,6 +2,7 @@
 //! Status + Trigger. Methoden sind Registry-Einträge mit Param-Schema —
 //! daraus bauen CLI und UI ihre Formulare, ohne pro Provider UI-Code.
 
+use anyhow::Context;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 
@@ -317,8 +318,45 @@ pub fn ssh_exec(t: &SshTarget, cmd: &str) -> anyhow::Result<String> {
     }
 }
 
+/// `${secret:id}`-Platzhalter in einem Param-Wert über den Secret-Store
+/// auflösen. Fehlt das Secret: Fehler (kein stiller leerer Ersatz).
+fn expand_str(v: &str, ctx: &Ctx) -> anyhow::Result<String> {
+    const MARK: &str = "${secret:";
+    let mut out = String::with_capacity(v.len());
+    let mut rest = v;
+    while let Some(start) = rest.find(MARK) {
+        out.push_str(&rest[..start]);
+        let body = &rest[start + MARK.len()..];
+        let Some(end) = body.find('}') else {
+            anyhow::bail!("ungültiger secret-platzhalter (kein '}}' gefunden)");
+        };
+        let id = &body[..end];
+        if id.is_empty() {
+            anyhow::bail!("leerer secret-platzhalter");
+        }
+        let val = crate::pass::lookup(id, ctx.secrets_dir.as_deref())
+            .with_context(|| format!("secret '{id}' fehlt im store"))?;
+        out.push_str(&val);
+        rest = &body[end + 1..];
+    }
+    out.push_str(rest);
+    Ok(out)
+}
+
+fn expand_op(op: &Op, ctx: &Ctx) -> anyhow::Result<Op> {
+    let mut params = BTreeMap::new();
+    for (k, v) in &op.params.0 {
+        params.insert(k.clone(), expand_str(v, ctx)?);
+    }
+    Ok(Op {
+        kind: op.kind.clone(),
+        params: Params(params),
+    })
+}
+
 /// Führt eine Op aus (Action-Feuer ODER Status-Check).
 pub fn execute(op: &Op, ctx: &Ctx) -> anyhow::Result<String> {
+    let op = &expand_op(op, ctx)?;
     match op.kind.as_str() {
         "ssh.run" => {
             let t = ctx.ssh_target(&op.params)?;
@@ -353,6 +391,10 @@ pub fn eval_status(op: &Op, ctx: &Ctx) -> (String, String) {
 /// OK = Zustand erfüllt, FAIL = Zustand nicht erfüllt (z.B. aus),
 /// ERR = Check selbst fehlgeschlagen (netz/ssh).
 fn eval(op: &Op, ctx: &Ctx) -> (String, String) {
+    let op = &match expand_op(op, ctx) {
+        Ok(o) => o,
+        Err(e) => return ("ERR".into(), e.to_string()),
+    };
     match op.kind.as_str() {
         "ssh.run" => {
             let t = match ctx.ssh_target(&op.params) {
@@ -562,5 +604,88 @@ mod tests {
         let st = &widget_states_cached(std::slice::from_ref(&w), &BTreeMap::new())[0];
         assert_eq!(st.status_state, "PEND");
         assert_eq!(st.buttons.len(), 2, "status unbekannt: alle sichtbar");
+    }
+
+    fn ctx_mit_secrets(dir: &std::path::Path) -> Ctx {
+        Ctx {
+            secrets_dir: Some(dir.to_path_buf()),
+            ..Ctx::default()
+        }
+    }
+
+    #[test]
+    fn expansion_loest_placeholders_auf() {
+        let dir = std::env::temp_dir().join(format!(
+            "cannon-expand-test-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        crate::pass::store("token", "abc123", Some(&dir));
+        let ctx = ctx_mit_secrets(&dir);
+
+        let op = expand_op(
+            &Op {
+                kind: "ssh.run".into(),
+                params: {
+                    let mut p = Params::default();
+                    p.set("command", "curl -H 'X-Key: ${secret:token}' x");
+                    p
+                },
+            },
+            &ctx,
+        )
+        .unwrap();
+        assert_eq!(op.params.get("command"), "curl -H 'X-Key: abc123' x");
+
+        // Mehrere Platzhalter + Text ohne Platzhalter bleibt unverändert
+        crate::pass::store("host", "h1", Some(&dir));
+        let op = expand_op(
+            &Op {
+                kind: "tcp.check".into(),
+                params: {
+                    let mut p = Params::default();
+                    p.set("host", "${secret:host}");
+                    p.set("port", "22");
+                    p
+                },
+            },
+            &ctx,
+        )
+        .unwrap();
+        assert_eq!(op.params.get("host"), "h1");
+        assert_eq!(op.params.get("port"), "22");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn expansion_fehler_bei_fehlendem_oder_kaputtem_secret() {
+        let dir = std::env::temp_dir().join("cannon-expand-missing");
+        std::fs::create_dir_all(&dir).unwrap();
+        let ctx = ctx_mit_secrets(&dir);
+
+        let op = Op {
+            kind: "tcp.check".into(),
+            params: {
+                let mut p = Params::default();
+                p.set("host", "${secret:fehlt}");
+                p
+            },
+        };
+        assert!(expand_op(&op, &ctx).is_err());
+
+        let op = Op {
+            kind: "tcp.check".into(),
+            params: {
+                let mut p = Params::default();
+                p.set("host", "${secret:ohne-ende");
+                p
+            },
+        };
+        assert!(expand_op(&op, &ctx).is_err());
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

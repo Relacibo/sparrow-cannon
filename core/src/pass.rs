@@ -1,134 +1,148 @@
-//! Passwort-Auflösung & -Speicherung.
+//! Secret-Store: alles in einer Datei — `<config-dir>/secrets.toml` (chmod 600).
 //!
-//! Reihenfolge: env CANNON_PASS → Keyring (Secret Service, adressiert per
-//! Box-ID) → Datei-Fallback (Android hat keinen Secret Service).
-//! Legacy-Items unter username=fritzbox migrieren sich beim Lookup selbst.
+//! Format: flache `id = "wert"`-Map. Private Keys (PEM) bewusst NICHT hier —
+//! die liegen als eigene Dateien (z. B. secrets/device.key), der SSH-Pfad
+//! erwartet Keyfile-Pfade.
+//! Resolve-Reihenfolge: env CANNON_PASS → secrets.toml.
+//! Legacy (Keyring, secrets/<id>.txt) wird bewusst nicht mehr gelesen
+//! (hard cut — bestaunte Passwörter einmalig neu eintragen).
 
-use std::io::Write;
+use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
-use std::process::{Command, Stdio};
 
-const SERVICE: &str = "sparrow-cannon";
-const LEGACY_USERNAME: &str = "fritzbox";
+pub fn secrets_file(dir: &Path) -> PathBuf {
+    dir.join("secrets.toml")
+}
 
-fn secret_tool(args: &[&str]) -> Option<std::process::Output> {
-    Command::new("secret-tool")
-        .args(args)
-        .output()
+fn load(dir: &Path) -> BTreeMap<String, String> {
+    std::fs::read_to_string(secrets_file(dir))
         .ok()
-        .filter(|o| o.status.success())
+        .and_then(|raw| toml::from_str(&raw).ok())
+        .unwrap_or_default()
 }
 
-fn secret_tool_store(pass: &str, username: &str) -> bool {
-    let label = format!("--label={SERVICE} {username}");
-    let Ok(mut child) = Command::new("secret-tool")
-        .args(["store", &label, "service", SERVICE, "username", username])
-        .stdin(Stdio::piped())
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .spawn()
-    else {
-        return false;
-    };
-    let mut stdin = match child.stdin.take() {
-        Some(s) => s,
-        None => return false,
-    };
-    let wrote = stdin.write_all(pass.as_bytes()).is_ok();
-    drop(stdin);
-    if !wrote {
-        return false;
+fn save(dir: &Path, map: &BTreeMap<String, String>) -> std::io::Result<()> {
+    let body = toml::to_string_pretty(map).map_err(std::io::Error::other)?;
+    let path = secrets_file(dir);
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent)?;
     }
-    child.wait().map(|s| s.success()).unwrap_or(false)
-}
-
-fn keyring_lookup_username(username: &str) -> Option<String> {
-    let out = secret_tool(&["lookup", "service", SERVICE, "username", username])?;
-    let val = String::from_utf8_lossy(&out.stdout).trim().to_string();
-    (!val.is_empty()).then_some(val)
-}
-
-/// Passwort zur Box-ID aus dem Keyring; migriert Legacy-Items automatisch.
-pub fn keyring_lookup(box_id: &str) -> Option<String> {
-    if let Some(v) = keyring_lookup_username(box_id) {
-        return Some(v);
+    // Atomic (tmp + rename): Parallel-Leser (Scheduler/Sync) sehen nie
+    // halbe Dateien.
+    let tmp = path.with_extension("toml.tmp");
+    std::fs::write(&tmp, body)?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let _ = std::fs::set_permissions(&tmp, std::fs::Permissions::from_mode(0o600));
     }
-    // Legacy: früher hieß das Item pauschal "fritzbox"
-    let legacy = keyring_lookup_username(LEGACY_USERNAME)?;
-    secret_tool_store(&legacy, box_id);
-    let _ = Command::new("secret-tool")
-        .args(["clear", "service", SERVICE, "username", LEGACY_USERNAME])
-        .status();
-    Some(legacy)
+    std::fs::rename(&tmp, &path)?;
+    Ok(())
 }
 
-/// Passwort zur Box-ID im Keyring speichern. false, wenn kein Keyring da ist.
-pub fn keyring_store(box_id: &str, pass: &str) -> bool {
-    secret_tool_store(pass, box_id)
+/// Ein Secret lesen (ohne env-Shortcut — für `${secret:id}`-Expansion).
+pub fn lookup(id: &str, dir: Option<&Path>) -> Option<String> {
+    let dir = dir?;
+    load(dir).remove(id).filter(|v| !v.is_empty())
 }
 
-fn secrets_file(dir: &Path, box_id: &str) -> PathBuf {
-    dir.join("secrets").join(format!("{box_id}.txt"))
-}
-
-/// Datei-Fallback (Android): secrets/<box_id>.txt, chmod 600.
-pub fn file_lookup(dir: &Path, box_id: &str) -> Option<String> {
-    let raw = std::fs::read_to_string(secrets_file(dir, box_id)).ok()?;
-    let val = raw.trim().to_string();
-    (!val.is_empty()).then_some(val)
-}
-
-pub fn file_store(dir: &Path, box_id: &str, pass: &str) -> bool {
-    let path = secrets_file(dir, box_id);
-    let Some(parent) = path.parent() else {
-        return false;
-    };
-    if std::fs::create_dir_all(parent).is_err() {
-        return false;
-    }
-    if std::fs::write(&path, format!("{pass}\n")).is_ok() {
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::PermissionsExt;
-            let _ = std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600));
-        }
-        true
-    } else {
-        false
-    }
-}
-
-/// Keyring-Eintrag einer Box löschen.
-pub fn delete(box_id: &str) {
-    let _ = Command::new("secret-tool")
-        .args(["clear", "service", SERVICE, "username", box_id])
-        .status();
-}
-
-/// Komfort-Auflösung für Frontends: env → keyring(box_id) → datei-fallback.
-pub fn resolve(box_id: &str, secrets_dir: Option<&Path>) -> Option<String> {
+/// Komfort-Auflösung: env CANNON_PASS → secrets.toml.
+pub fn resolve(id: &str, dir: Option<&Path>) -> Option<String> {
     if let Ok(p) = std::env::var("CANNON_PASS")
         && !p.is_empty()
     {
         return Some(p);
     }
-    if let Some(p) = keyring_lookup(box_id) {
-        return Some(p);
-    }
-    secrets_dir.and_then(|d| file_lookup(d, box_id))
+    lookup(id, dir)
 }
 
-/// Speichert bevorzugt im Keyring, sonst in der Datei. Liefert den genutzten
-/// Weg zurück (fürs Logging).
-pub fn store(box_id: &str, pass: &str, secrets_dir: Option<&Path>) -> &'static str {
-    if keyring_store(box_id, pass) {
-        "keyring"
-    } else if secrets_dir
-        .map(|d| file_store(d, box_id, pass))
-        .unwrap_or(false)
-    {
-        "datei"
-    } else {
-        "nirgends"
+/// Secret speichern. Liefert den genutzten Weg (fürs Logging).
+pub fn store(id: &str, pass: &str, dir: Option<&Path>) -> &'static str {
+    match dir {
+        Some(d) => {
+            let mut map = load(d);
+            map.insert(id.to_string(), pass.to_string());
+            match save(d, &map) {
+                Ok(()) => "datei",
+                Err(_) => "nirgends",
+            }
+        }
+        None => "nirgends",
+    }
+}
+
+pub fn delete(id: &str, dir: Option<&Path>) {
+    if let Some(d) = dir {
+        let mut map = load(d);
+        if map.remove(id).is_some() {
+            let _ = save(d, &map);
+        }
+    }
+}
+
+/// IDs aller Secrets (für UI/CLI-Liste — niemals die Werte).
+pub fn ids(dir: Option<&Path>) -> Vec<String> {
+    dir.map(|d| load(d).into_keys().collect())
+        .unwrap_or_default()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn tmpdir() -> PathBuf {
+        let d = std::env::temp_dir().join(format!(
+            "cannon-pass-test-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&d).unwrap();
+        d
+    }
+
+    #[test]
+    fn store_lookup_roundtrip() {
+        let dir = tmpdir();
+        assert_eq!(lookup("x", Some(&dir)), None);
+        assert_eq!(store("x", "geheim", Some(&dir)), "datei");
+        assert_eq!(lookup("x", Some(&dir)).as_deref(), Some("geheim"));
+        assert_eq!(ids(Some(&dir)), vec!["x".to_string()]);
+        delete("x", Some(&dir));
+        assert_eq!(lookup("x", Some(&dir)), None);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn store_erzeugt_0600_datei() {
+        let dir = tmpdir();
+        store("x", "geheim", Some(&dir));
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let mode = std::fs::metadata(secrets_file(&dir))
+                .unwrap()
+                .permissions()
+                .mode();
+            assert_eq!(mode & 0o777, 0o600);
+        }
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn ohne_dir_geht_nichts() {
+        assert_eq!(store("x", "y", None), "nirgends");
+        assert_eq!(lookup("x", None), None);
+        assert!(ids(None).is_empty());
+    }
+
+    #[test]
+    fn leerer_wert_gilt_nicht() {
+        let dir = tmpdir();
+        store("leer", "", Some(&dir));
+        assert_eq!(lookup("leer", Some(&dir)), None);
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

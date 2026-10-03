@@ -2,6 +2,7 @@ import { createEffect, createSignal, For, onCleanup, onMount, Show } from "solid
 import { createStore } from "solid-js/store";
 import { FiCheck, FiCopy, FiDownload, FiKey, FiPause, FiPlay, FiPlus, FiRefreshCw, FiTrash2, FiX } from "solid-icons/fi";
 import { invoke } from "@tauri-apps/api/core";
+import { getVersion } from "@tauri-apps/api/app";
 
 type Row = {
   id: string;
@@ -79,6 +80,7 @@ function App() {
   const [wids, setWids] = createSignal<WidgetRow[]>([]);
   const [sshConns, setSshConns] = createSignal<SshConn[]>([]);
   const [boxConns, setBoxConns] = createSignal<BoxConn[]>([]);
+  const [secretIds, setSecretIds] = createSignal<string[]>([]);
   const [pubkey, setPubkey] = createSignal("");
   const [platform, setPlatform] = createSignal("");
   const [busy, setBusy] = createSignal("");
@@ -96,6 +98,9 @@ function App() {
   const [showAdd, setShowAdd] = createSignal(false);
   const [showSsh, setShowSsh] = createSignal(false);
   const [showBox, setShowBox] = createSignal(false);
+  const [showSecret, setShowSecret] = createSignal(false);
+  const [secretId, setSecretId] = createSignal("");
+  const [secretValue, setSecretValue] = createSignal("");
   const [addTitle, setAddTitle] = createSignal("");
   const [addStatusOn, setAddStatusOn] = createSignal(false);
   const [addStatusKind, setAddStatusKind] = createSignal("");
@@ -119,10 +124,12 @@ function App() {
       if (results[1].status === "fulfilled") setRows(results[1].value);
       const nextSsh = await invoke<SshConn[]>("get_ssh_connections");
       const nextBox = await invoke<BoxConn[]>("get_box_connections");
+      const nextSecrets = await invoke<string[]>("get_secret_ids");
       // Nur bei echter Änderung setzen — sonst baut <For> die Dropdown-Optionen
       // neu (Referenzvergleich) und offene <select>s verlieren ihre Auswahl
       if (JSON.stringify(nextSsh) !== JSON.stringify(sshConns())) setSshConns(nextSsh);
       if (JSON.stringify(nextBox) !== JSON.stringify(boxConns())) setBoxConns(nextBox);
+      if (JSON.stringify(nextSecrets) !== JSON.stringify(secretIds())) setSecretIds(nextSecrets);
       invoke<string>("get_pubkey").then(setPubkey).catch(() => setPubkey(""));
       invoke<string>("get_platform").then(setPlatform);
       const firstErr = results.find((r) => r.status === "rejected");
@@ -389,6 +396,20 @@ function App() {
     });
   };
 
+  const saveSecret = async () => {
+    const id = secretId().trim();
+    if (!id || !secretValue()) return;
+    try {
+      await invoke("set_secret", { id, value: secretValue() });
+      setShowSecret(false);
+      setSecretId("");
+      setSecretValue("");
+      await refresh();
+    } catch (e) {
+      setError(String(e));
+    }
+  };
+
   let timer: number;
   const poll = () => {
     if (!showAdd() && !polling() && (rows().length || wids().length || !loaded()))
@@ -399,6 +420,7 @@ function App() {
     timer = setTimeout(poll, pending ? 2_000 : 10_000);
   };
   onMount(() => {
+    getVersion().then(setVersion).catch(() => {});
     refresh();
     timer = setTimeout(poll, 2_000);
   });
@@ -443,6 +465,8 @@ function App() {
     toastTimer = setTimeout(() => setToast(""), 5000);
   };
   createEffect(() => notify(error()));
+
+  const [version, setVersion] = createSignal("");
 
   return (
     <div class="mx-auto max-w-[900px] select-none p-5 pb-[max(1.25rem,env(safe-area-inset-bottom))]">
@@ -805,6 +829,56 @@ function App() {
             </div>
           </section>
 
+          <section>
+            <div class="mb-2 flex items-center justify-between">
+              <h2 class="text-sm font-semibold text-muted">geheimnisse</h2>
+              <button
+                class="cursor-pointer rounded-lg border border-line px-3 py-1 text-xs text-muted transition hover:border-muted hover:text-fg active:opacity-70"
+                onClick={() => {
+                  setSecretId("");
+                  setSecretValue("");
+                  setShowSecret(true);
+                }}
+              >
+                <FiPlus size={12} class="inline" /> neu
+              </button>
+            </div>
+            <div class="flex flex-col gap-2">
+              <For each={secretIds()}>
+                {(id) => (
+                  <div class="flex items-center gap-2 rounded-xl border border-line bg-card p-3">
+                    <span class="size-2 shrink-0 rounded-full bg-up" />
+                    <div class="min-w-0 font-mono text-sm font-semibold">{id}</div>
+                    <span class="ml-auto text-xs text-muted">••••••••</span>
+                    <button
+                      class={`shrink-0 cursor-pointer rounded p-1 text-xs transition ${
+                        confirmDel() === `x:${id}`
+                          ? "font-semibold text-down"
+                          : "text-muted hover:text-down"
+                      }`}
+                      onClick={() =>
+                        askDelete(`x:${id}`) &&
+                        invoke("remove_secret", { id }).then(refresh)
+                      }
+                      title={
+                        confirmDel() === `x:${id}`
+                          ? "wirklich entfernen? (nochmal tippen)"
+                          : "Secret entfernen"
+                      }
+                    >
+                      {confirmDel() === `x:${id}` ? "wirklich?" : <FiTrash2 size={18} />}
+                    </button>
+                  </div>
+                )}
+              </For>
+              <Show when={!secretIds().length}>
+                <div class="rounded-xl border border-dashed border-line bg-card p-4 text-sm text-muted">
+                  noch keine geheimnisse — nutzung: <span class="font-mono">{"${secret:id}"}</span> in param-feldern
+                </div>
+              </Show>
+            </div>
+          </section>
+
           <Show when={platform() !== "android" && pubkey()}>
             <div class="flex items-center gap-2 rounded-xl border border-dashed border-line bg-card p-3 text-xs text-muted">
               <span class="shrink-0">dein pubkey für neue zielsysteme:</span>
@@ -841,9 +915,12 @@ function App() {
             role="status"
           />
         </Show>
-        aktualisiert: {lastCheck() || "…"} (10s)
+        aktualisiert: {lastCheck() || "…"} (2–10s)
         <Show when={boxUnreachable()}>
           <span class="text-err">· Box nicht erreichbar (Timeout?)</span>
+        </Show>
+        <Show when={version()}>
+          <span class="ml-auto font-mono opacity-60">v{version()}</span>
         </Show>
       </p>
 
@@ -952,6 +1029,59 @@ function App() {
                 Speichern
               </button>
             </form>
+          </div>
+        </div>
+      </Show>
+
+      {/* Geheimnis anlegen/ändern */}
+      <Show when={showSecret()}>
+        <div
+          class="fixed inset-0 z-50 flex items-end justify-center bg-black/60 p-0 sm:items-center sm:p-4"
+          onFocusIn={focusIntoView}
+          onClick={(e) => {
+            if (e.target === e.currentTarget) setShowSecret(false);
+          }}
+        >
+          <div class="max-h-[94dvh] w-full max-w-sm overflow-y-auto overscroll-contain rounded-t-2xl border border-line bg-bg p-5 sm:max-h-[86vh] sm:rounded-2xl">
+            <div class="mb-3 flex items-center justify-between">
+              <h2 class="font-semibold">Geheimnis</h2>
+              <button
+                class="cursor-pointer text-xs text-muted transition hover:text-fg"
+                onClick={() => setShowSecret(false)}
+              >
+                abbrechen
+              </button>
+            </div>
+            <div class="flex flex-col gap-3">
+              <label class="block">
+                <span class="text-xs text-muted">ID (nutzbar als {"${secret:id}"}) *</span>
+                <input
+                  type="text"
+                  required
+                  class="mt-1 w-full rounded-lg border border-line bg-card px-3 py-3 font-mono text-sm text-fg"
+                  placeholder="z. B. gstream-token"
+                  value={secretId()}
+                  onInput={(e) => setSecretId(e.currentTarget.value)}
+                />
+              </label>
+              <label class="block">
+                <span class="text-xs text-muted">Wert *</span>
+                <input
+                  type="password"
+                  required
+                  class="mt-1 w-full rounded-lg border border-line bg-card px-3 py-3 text-sm text-fg"
+                  placeholder="existierende ID überschreibt den Wert"
+                  value={secretValue()}
+                  onInput={(e) => setSecretValue(e.currentTarget.value)}
+                />
+              </label>
+              <button
+                class="mt-1 cursor-pointer rounded-lg bg-accent py-3 text-sm font-semibold text-[#0d1117] transition hover:bg-accent/80 active:opacity-80"
+                onClick={saveSecret}
+              >
+                Speichern
+              </button>
+            </div>
           </div>
         </div>
       </Show>

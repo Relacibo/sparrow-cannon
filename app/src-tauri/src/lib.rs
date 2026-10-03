@@ -127,22 +127,10 @@ fn spawn_scheduler(app: tauri::AppHandle) {
     });
 }
 
-/// Verzeichnis für den Datei-Fallback der Passwörter (nur Android relevant —
-/// dort gibt es keinen Secret Service).
+/// Verzeichnis für secrets.toml — immer das Config-Verzeichnis
+/// (Desktop: ~/.config/sparrow-cannon, Android: app_data_dir).
 fn secrets_dir(app: &tauri::AppHandle) -> Option<PathBuf> {
-    #[cfg(target_os = "android")]
-    {
-        use tauri::Manager;
-        app.path()
-            .app_data_dir()
-            .expect("app_data_dir nicht auflösbar")
-            .into()
-    }
-    #[cfg(not(target_os = "android"))]
-    {
-        let _ = app;
-        None
-    }
+    config_path(app).parent().map(Path::to_path_buf)
 }
 
 /// Alte box.txt (Vorgängerversion) entfernen — Werte leben jetzt in der
@@ -171,8 +159,8 @@ fn migrate_legacy_box_txt(dir: &Path, conf: &mut ConfigFile) {
         conf.upsert_box(&id, url, user);
         let _ = conf.save_to(&config_path_static());
         if !legacy_pass.is_empty() {
-            // Android-Fallback: Passwort in die neue secrets/<id>.txt übernehmen
-            sparrow_cannon_core::pass::file_store(dir, &id, legacy_pass);
+            // Legacy: Passwort in die neue secrets.toml übernehmen
+            sparrow_cannon_core::pass::store(&id, legacy_pass, Some(dir));
         }
         tracing::info!("legacy box.txt übernommen");
     }
@@ -484,6 +472,40 @@ async fn ensure_device_key(app: tauri::AppHandle) -> Result<String, String> {
 }
 
 #[tauri::command]
+async fn get_secret_ids(app: tauri::AppHandle) -> Result<Vec<String>, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        Ok(sparrow_cannon_core::pass::ids(secrets_dir(&app).as_deref()))
+    })
+    .await
+    .map_err(|e| format!("join: {e}"))?
+}
+
+#[tauri::command]
+async fn set_secret(id: String, value: String, app: tauri::AppHandle) -> Result<(), String> {
+    if id.trim().is_empty() || value.is_empty() {
+        return Err("id und wert nötig".into());
+    }
+    tauri::async_runtime::spawn_blocking(move || -> Result<(), String> {
+        match sparrow_cannon_core::pass::store(id.trim(), &value, secrets_dir(&app).as_deref()) {
+            "datei" => Ok(()),
+            _ => Err("secret konnte nicht gespeichert werden".into()),
+        }
+    })
+    .await
+    .map_err(|e| format!("join: {e}"))?
+}
+
+#[tauri::command]
+async fn remove_secret(id: String, app: tauri::AppHandle) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        sparrow_cannon_core::pass::delete(&id, secrets_dir(&app).as_deref());
+        Ok::<_, String>(())
+    })
+    .await
+    .map_err(|e| format!("join: {e}"))?
+}
+
+#[tauri::command]
 async fn remove_ssh_conn(id: String, app: tauri::AppHandle) -> Result<(), String> {
     tauri::async_runtime::spawn_blocking(move || -> Result<(), String> {
         let t = std::time::Instant::now();
@@ -537,7 +559,7 @@ async fn remove_box_conn(id: String, app: tauri::AppHandle) -> Result<(), String
                 ConfigFile::load_from(path.clone()).unwrap_or_else(|_| ConfigFile::builtin());
             conf.boxes.remove(&id);
             conf.save_to(&path).map_err(|e| e.to_string())?;
-            sparrow_cannon_core::pass::delete(&id);
+            sparrow_cannon_core::pass::delete(&id, secrets_dir(&app).as_deref());
             Ok(())
         })();
         if t.elapsed() > std::time::Duration::from_millis(20) {
@@ -1060,6 +1082,9 @@ pub fn run() {
             upsert_ssh_conn,
             ensure_device_key,
             remove_ssh_conn,
+            get_secret_ids,
+            set_secret,
+            remove_secret,
             upsert_box_conn,
             remove_box_conn,
             sync_from_remote
