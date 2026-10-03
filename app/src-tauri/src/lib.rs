@@ -405,7 +405,29 @@ async fn sync_from_remote(app: tauri::AppHandle) -> Result<String, String> {
             if !outcome.report.conflicts.is_empty() {
                 msg.push_str(" — konflikt-karten sind deaktiviert markiert");
             }
-            Ok(format!("sync von {conn_id} ✅ {msg}"))
+
+            // secrets.toml (sibling der remote config) — union-merge,
+            // remote gewinnt pro ID. Best effort: fehlt die Datei auf der
+            // Quelle (älterer Stand), scheitert der Sync nicht daran.
+            let secrets_msg = match std::path::Path::new(&remote_path)
+                .parent()
+                .map(|p| p.join("secrets.toml"))
+                .map(|sp| {
+                    sparrow_cannon_core::widgets::ssh_exec(target, &format!("cat {}", sp.display()))
+                }) {
+                Some(pulled) => match pulled {
+                    Ok(raw) => match sparrow_cannon_core::pass::merge_remote_raw(
+                        secrets_dir(&app).as_deref(),
+                        &raw,
+                    ) {
+                        Ok((taken, total)) => format!(", secrets: {taken} neu ({total} gesamt)"),
+                        Err(e) => format!(", secrets: {e}"),
+                    },
+                    Err(_) => ", secrets: keine datei auf der quelle".to_string(),
+                },
+                None => String::new(),
+            };
+            Ok(format!("sync von {conn_id} ✅ {msg}{secrets_msg}"))
         })();
         if t.elapsed() > std::time::Duration::from_secs(2) {
             tracing::warn!("command sync_from_remote: {:?}", t.elapsed());

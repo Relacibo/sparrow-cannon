@@ -86,6 +86,24 @@ pub fn ids(dir: Option<&Path>) -> Vec<String> {
         .unwrap_or_default()
 }
 
+/// Secrets aus fremdem secrets.toml-Inhalt einarbeiten — Union-Merge pro ID
+/// (remote gewinnt, lokale IDs bleiben). Liefert (neu übernommen, gesamt).
+pub fn merge_remote_raw(dir: Option<&Path>, raw: &str) -> anyhow::Result<(usize, usize)> {
+    let dir = dir.ok_or_else(|| anyhow::anyhow!("kein secret-verzeichnis"))?;
+    let remote: BTreeMap<String, String> =
+        toml::from_str(raw).map_err(|e| anyhow::anyhow!("remote secrets parse: {e}"))?;
+    let mut local = load(dir);
+    let mut taken = 0usize;
+    for (id, val) in remote {
+        if !val.is_empty() && local.get(&id) != Some(&val) {
+            local.insert(id, val);
+            taken += 1;
+        }
+    }
+    save(dir, &local).map_err(|e| anyhow::anyhow!("secrets speichern: {e}"))?;
+    Ok((taken, local.len()))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -143,6 +161,32 @@ mod tests {
         let dir = tmpdir();
         store("leer", "", Some(&dir));
         assert_eq!(lookup("leer", Some(&dir)), None);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn merge_remote_union_remote_gewinnt_lokale_bleiben() {
+        let dir = tmpdir();
+        store("lokal", "L", Some(&dir));
+        store("gleich", "alt", Some(&dir));
+        let (taken, total) = merge_remote_raw(
+            Some(&dir),
+            "lokal = \"L\"\ngleich = \"neu\"\nlokal_neu = \"R\"\n",
+        )
+        .unwrap();
+        assert_eq!(
+            (taken, total),
+            (2, 3),
+            "identisches secret ('lokal') zählt nicht neu"
+        );
+        assert_eq!(lookup("lokal", Some(&dir)).as_deref(), Some("L"));
+        assert_eq!(lookup("gleich", Some(&dir)).as_deref(), Some("neu"));
+        assert_eq!(lookup("lokal_neu", Some(&dir)).as_deref(), Some("R"));
+
+        // kaputtes TOML → Fehler, lokale Datei unangetastet
+        assert!(merge_remote_raw(Some(&dir), "kein toml [[[").is_err());
+        assert_eq!(lookup("lokal", Some(&dir)).as_deref(), Some("L"));
+        assert!(merge_remote_raw(None, "").is_err());
         let _ = std::fs::remove_dir_all(&dir);
     }
 }
